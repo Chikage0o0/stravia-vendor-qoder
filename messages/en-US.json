@@ -1,0 +1,22 @@
+{
+  "channel_cn": "China (mainland)",
+  "channel_global": "Global",
+  "channel_cn_description": "Use a Qoder China account and authorize through the browser device flow. Models are discovered remotely.",
+  "channel_global_description": "Use a Qoder Global account and authorize through the browser device flow. Models are discovered remotely.",
+  "model_ids": "Custom model IDs",
+  "model_ids_description": "Optional, one model ID per line. When set, only these IDs are filtered from the remotely returned model IDs. This does not call models for inference.",
+  "invalid_model_ids": "Model IDs must be nonempty single-line text, at most 200 characters each, with no control characters or duplicates.",
+  "invalid_options": "Unsupported Qoder configuration fields were provided.",
+  "machine_os": "Client machine platform",
+  "machine_os_description": "Send OS and architecture in Qoder CLI format. The default is a Windows x64 client identity, not an automatically detected real machine.",
+  "machine_os_windows_x64": "Windows x64",
+  "machine_os_windows_arm64": "Windows ARM64",
+  "machine_os_linux_x64": "Linux x64",
+  "machine_os_linux_arm64": "Linux ARM64",
+  "machine_os_macos_x64": "macOS x64",
+  "machine_os_macos_arm64": "macOS ARM64",
+  "machine_hostname": "Client hostname",
+  "machine_hostname_description": "Optional. Normalized using official CLI rules before sending to Qoder. Leave blank for a stable stravia- name derived from the connection machine ID; the real hostname is not read.",
+  "invalid_machine_os": "Client machine platform must be an OS and architecture combination from the list.",
+  "invalid_machine_hostname": "Client hostname must be text without line breaks, at most 4096 bytes."
+}

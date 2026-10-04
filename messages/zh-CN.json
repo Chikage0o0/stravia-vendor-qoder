@@ -1,0 +1,22 @@
+{
+  "channel_cn": "国内版（中国大陆）",
+  "channel_global": "全球版",
+  "channel_cn_description": "使用 Qoder 中国版账号，并通过浏览器设备流授权。模型目录从远端发现。",
+  "channel_global_description": "使用 Qoder 全球版账号，并通过浏览器设备流授权。模型目录从远端发现。",
+  "model_ids": "自定义模型 ID",
+  "model_ids_description": "可选，每行一个模型 ID。用于筛选远端返回的模型 ID；此过程不调用模型进行推理。",
+  "invalid_model_ids": "模型 ID 必须是非空单行文本，每项最长 200 字符，不允许控制字符或重复项。",
+  "invalid_options": "存在不支持的 Qoder 配置字段。",
+  "machine_os": "客户端机器平台",
+  "machine_os_description": "按 Qoder CLI 格式发送 OS 和架构。默认是 Windows x64 客户端身份，不代表自动检测到的真实机器。",
+  "machine_os_windows_x64": "Windows x64",
+  "machine_os_windows_arm64": "Windows ARM64",
+  "machine_os_linux_x64": "Linux x64",
+  "machine_os_linux_arm64": "Linux ARM64",
+  "machine_os_macos_x64": "macOS x64",
+  "machine_os_macos_arm64": "macOS ARM64",
+  "machine_hostname": "客户端主机名",
+  "machine_hostname_description": "可选，按官方 CLI 规则规范化后发送给 Qoder。留空使用由本次连接机器 ID 派生的稳定 stravia- 名称，不读取真实主机名。",
+  "invalid_machine_os": "客户端机器平台必须为列表中的 OS 和架构组合。",
+  "invalid_machine_hostname": "客户端主机名必须为不含换行的文本，最长 4096 字节。"
+}

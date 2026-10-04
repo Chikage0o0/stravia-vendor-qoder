@@ -1,0 +1,57 @@
+name: Release
+
+# 打 v* tag 时构建 wasm32-wasip2 组件并发布 GitHub Release。
+# tag 版本号必须与 Cargo.toml 的 package.version 一致，否则失败。
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml 是工具链版本的唯一来源
+      - name: Read rust-toolchain.toml
+        id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm32-wasip2
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          echo "tag=$tag version=$version"
+          test "$tag" = "$version" || { echo "::error::tag $tag does not match Cargo.toml version $version"; exit 1; }
+
+      - name: Build wasm component
+        run: cargo build --locked --release --lib --target wasm32-wasip2
+
+      - name: Package dist
+        run: |
+          name="stravia-vendor-qoder-v${GITHUB_REF_NAME#v}.wasm"
+          mkdir -p dist
+          cp target/wasm32-wasip2/release/stravia_vendor_qoder.wasm "dist/$name"
+          cp LICENSE NOTICE vendor/rust_decimal.LICENSE dist/
+          (cd dist && sha256sum "$name" > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*

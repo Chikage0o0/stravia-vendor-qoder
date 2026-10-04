@@ -1,0 +1,145 @@
+{
+  "request_id": "00000000-0000-4000-8000-000000000001",
+  "request_set_id": "00000000-0000-4000-8000-000000000001",
+  "chat_record_id": "00000000-0000-4000-8000-000000000001",
+  "session_id": "synthetic-session",
+  "stream": true,
+  "chat_task": "FREE_INPUT",
+  "chat_context": {
+    "text": "synthetic continuation",
+    "features": [],
+    "extra": {
+      "context": [],
+      "modelConfig": {
+        "key": "qfmodel",
+        "is_reasoning": false
+      },
+      "originalContent": "synthetic continuation"
+    },
+    "chatPrompt": "",
+    "imageUrls": null
+  },
+  "is_reply": true,
+  "is_retry": false,
+  "source": 1,
+  "version": "3",
+  "agent_id": "agent_common",
+  "task_id": "common",
+  "session_type": "qodercli",
+  "aliyun_user_type": "",
+  "model_config": {
+    "key": "qfmodel",
+    "display_name": "Synthetic Flash",
+    "model": "",
+    "format": "openai",
+    "is_vl": true,
+    "is_reasoning": false,
+    "api_key": "",
+    "url": "",
+    "source": "system",
+    "max_input_tokens": 200000
+  },
+  "system": [
+    {
+      "type": "text",
+      "text": "synthetic system"
+    }
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": [
+        {
+          "type": "text",
+          "text": "synthetic system"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": "synthetic question",
+      "contents": [
+        {
+          "type": "text",
+          "text": "synthetic question"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_a",
+          "type": "function",
+          "index": 0,
+          "function": {
+            "name": "echo",
+            "arguments": "{\"value\":\"alpha\"}"
+          }
+        },
+        {
+          "id": "call_b",
+          "type": "function",
+          "index": 1,
+          "function": {
+            "name": "echo",
+            "arguments": "{\"value\":\"beta\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "beta",
+      "tool_call_id": "call_b"
+    },
+    {
+      "role": "tool",
+      "content": "alpha",
+      "tool_call_id": "call_a",
+      "is_error": true
+    },
+    {
+      "role": "user",
+      "content": "synthetic continuation",
+      "contents": [
+        {
+          "type": "text",
+          "text": "synthetic continuation"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "echo",
+        "description": "Synthetic echo",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "parameters": {
+    "max_tokens": 16384,
+    "reasoning_effort": "medium",
+    "enable_thinking": true
+  },
+  "business": {
+    "product": "cli",
+    "version": "1.1.65",
+    "type": "agent",
+    "id": "00000000-0000-4000-8000-000000000002",
+    "name": "synthetic ",
+    "begin_at": 1790000000000,
+    "stage": "start"
+  }
+}

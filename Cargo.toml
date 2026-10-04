@@ -1,0 +1,55 @@
+[package]
+name = "stravia-vendor-qoder"
+version = "0.1.8"
+edition = "2024"
+rust-version = "1.98.1"
+license = "MIT"
+authors = ["Chikage0o0 <chikage@939.me>"]
+description = "Qoder China and global native HTTP vendor component for Stravia"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+stravia-vendor-sdk = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
+stravia-vendor-common = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
+stravia-runtime-contract = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
+stravia-protocol-codec = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+semver = { version = "1", features = ["serde"] }
+base64 = "0.23"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc", "block-padding"] }
+rsa = { version = "0.9", default-features = false, features = ["pem", "u64_digit", "hazmat"] }
+getrandom = "0.3"
+md-5 = "0.10"
+sha2 = "0.10"
+zeroize = { version = "1", features = ["alloc"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+rust_decimal = { version = "1.43", default-features = false, features = ["std"] }
+
+[target.wasm32-wasip2.dependencies]
+# 已固定的宿主只允许 WASI 0.2.9；约束安全熵依赖，避免新绑定升级组件导入 ABI。
+wasip2 = "=1.0.3"
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+stravia-vendor-runtime = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
+async-trait = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+parking_lot = "0.12"
+
+[profile.release]
+lto = true
+opt-level = "s"
+strip = "debuginfo"
+
+[package.metadata.component]
+package = "stravia:vendor"

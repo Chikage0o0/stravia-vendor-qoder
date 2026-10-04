@@ -1,0 +1,59 @@
+version: '3'
+
+vars:
+  PACKAGE: stravia-vendor-qoder
+  WASM: target/wasm32-wasip2/release/stravia_vendor_qoder.wasm
+
+tasks:
+  default:
+    deps: [dist]
+
+  build:
+    desc: 构建 wasm32-wasip2 release 组件
+    cmds:
+      - cargo build --locked --release --lib --target wasm32-wasip2 --target-dir target
+
+  test:
+    desc: 单元回归与组件契约验证（契约测试加载 release wasm，须先构建）
+    deps: [build]
+    cmds:
+      - cargo test --locked --lib --target-dir target
+      - cargo test --locked --test component_contract --target-dir target -- --ignored --nocapture
+
+  verify:
+    desc: 构建并执行全部验证
+    deps: [test]
+
+  dist:
+    desc: 构建并打包 dist/（组件、许可证与 SHA256SUMS）
+    deps: [build]
+    vars:
+      # 纯 shell 内建解析，不依赖外部工具
+      VERSION:
+        sh: |
+          while IFS= read -r line; do
+            case "$line" in
+              'version = "'*) v="${line#version = \"}"; echo "${v%\"}"; break ;;
+            esac
+          done < Cargo.toml
+    cmds:
+      - cmd: |
+          mkdir -p dist
+          cp "{{.WASM}}" "dist/{{.PACKAGE}}-v{{.VERSION}}.wasm"
+          cp LICENSE NOTICE vendor/rust_decimal.LICENSE dist/
+          name="{{.PACKAGE}}-v{{.VERSION}}.wasm"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sum=$(sha256sum "dist/$name")
+          else
+            sum=$(shasum -a 256 "dist/$name")
+          fi
+          hash=${sum%% *}
+          printf '%s  %s\n' "$hash" "$name" > dist/SHA256SUMS
+          printf 'Built: dist/%s\nSHA256: %s\n' "$name" "$hash"
+        platforms: [linux, darwin]
+      - cmd: >-
+          powershell -NoProfile -Command 'New-Item -ItemType Directory -Force dist | Out-Null; Copy-Item "{{.WASM}}" "dist/{{.PACKAGE}}-v{{.VERSION}}.wasm"; Copy-Item "LICENSE","NOTICE","vendor/rust_decimal.LICENSE" dist'
+        platforms: [windows]
+      - cmd: >-
+          powershell -NoProfile -Command '$h=(Get-FileHash "dist/{{.PACKAGE}}-v{{.VERSION}}.wasm" -Algorithm SHA256).Hash.ToLowerInvariant(); [IO.File]::WriteAllText("dist/SHA256SUMS", "$h  {{.PACKAGE}}-v{{.VERSION}}.wasm`n", [Text.UTF8Encoding]::new($false)); Write-Output "Built: dist/{{.PACKAGE}}-v{{.VERSION}}.wasm"; Write-Output "SHA256: $h"'
+        platforms: [windows]
