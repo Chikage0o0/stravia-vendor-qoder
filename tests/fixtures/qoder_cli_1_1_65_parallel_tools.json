@@ -106,7 +106,10 @@
       "contents": [
         {
           "type": "text",
-          "text": "synthetic continuation"
+          "text": "synthetic continuation",
+          "cache_control": {
+            "type": "ephemeral"
+          }
         }
       ]
     }

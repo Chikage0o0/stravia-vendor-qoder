@@ -1,6 +1,7 @@
 //! Qoder 原生 RemoteChatAsk 传输；仅官方 SSE finish 事件决定成功终止。
 use crate::{PROTOCOL, Region, auth, protocol};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::time::Duration;
 use stravia_protocol_codec::accumulator::StreamResponseAccumulator;
 use stravia_protocol_codec::transform::{ProtocolTransform, StreamDecodeStage};
@@ -36,19 +37,13 @@ pub(crate) fn execute(
             "invalid Qoder model options",
         ));
     }
-    let fallback_session;
-    let session = match provider
+    let session = provider
         .operation_metadata
         .get("session_affinity")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-    {
-        Some(session) => session,
-        None => {
-            fallback_session = uuid::Uuid::new_v4().to_string();
-            &fallback_session
-        }
-    };
+        .map(native_session_id)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let model_config = provider
         .model_metadata
         .as_ref()
@@ -67,7 +62,7 @@ pub(crate) fn execute(
     request.model = model.to_owned();
     request.stream.enabled = true;
     let canonical = project_request(&request)?;
-    let body = build_body(canonical, model, source, session, region, model_config)?;
+    let body = build_body(canonical, model, source, &session, region, model_config)?;
     let raw = serde_json::to_vec(&body)
         .map_err(|_| common::plugin_error(ErrorKind::Invalid, "cannot serialize Qoder request"))?;
     let mut http = protocol::prepare(
@@ -116,6 +111,18 @@ pub(crate) fn execute(
     Ok(OperationOutput::Infer(Box::new(complete)))
 }
 
+fn native_session_id(affinity: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"qoder-session-v1\0");
+    digest.update(affinity.as_bytes());
+    let mut bytes = [0; 16];
+    bytes.copy_from_slice(&digest.finalize()[..16]);
+    // 保留宿主链根的稳定性，仅转换为 CLI 使用的 UUID 布局；这不是随机熵。
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    uuid::Uuid::from_bytes(bytes).to_string()
+}
+
 // finish 已代表事务终结，不再等待上游 EOF 或读取连接上的下一块。
 fn consume_stream(
     mut read: impl FnMut() -> Result<Option<Vec<u8>>, PluginError>,
@@ -133,21 +140,16 @@ fn consume_stream(
 
 // 直接投影 canonical IR；OpenAI 编码器会重排并行工具历史，不能充当原生 wire 中间层。
 fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
-    let mut parameters =
-        serde_json::to_value(&request.generation).map_err(|_| unsupported_request())?;
-    let parameters = parameters.as_object_mut().ok_or_else(unsupported_request)?;
-    for key in ["seed", "stop", "presence_penalty", "frequency_penalty"] {
-        if parameters.contains_key(key) {
-            return Err(unsupported_request());
-        }
+    let mut parameters = serde_json::Map::new();
+    // 仅投影 CLI 可表达的参数；其他请求选项不参与出站请求，也不使推理失败。
+    if let Some(value) = request.generation.temperature {
+        parameters.insert("temperature".into(), json!(value));
     }
-    if request.response_format.is_some()
-        || request.embedding.is_some()
-        || request.safety_settings.is_some()
-        || request.parallel_tool_calls == Some(false)
-        || request.disable_parallel_tool_calls == Some(true)
-    {
-        return Err(unsupported_request());
+    if let Some(value) = request.generation.top_p {
+        parameters.insert("top_p".into(), json!(value));
+    }
+    if let Some(value) = request.generation.max_tokens {
+        parameters.insert("max_tokens".into(), json!(value));
     }
     if let Some(level) = request.reasoning.level {
         let effort = level.as_str();
@@ -182,8 +184,36 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
     {
         parameters.insert("top_k".into(), json!(top_k));
     }
+    // DlA/Fgi 在拆分工具结果之前选择最后一条历史的断点；全为排除块时不退到前一条。
+    let cache_breakpoint = request
+        .items
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, item)| matches!(item.role, Role::User | Role::Assistant | Role::Tool))
+        .and_then(|(message_index, item)| {
+            if item.role == Role::Tool {
+                return None;
+            }
+            let MessageContent::Blocks(blocks) = &item.content else {
+                return None;
+            };
+            blocks
+                .iter()
+                .rposition(|block| {
+                    !matches!(
+                        block,
+                        ContentBlock::Thinking { .. }
+                            | ContentBlock::Reasoning { .. }
+                            | ContentBlock::RedactedThinking { .. }
+                            | ContentBlock::ToolUse { .. }
+                            | ContentBlock::ToolResult { .. }
+                    )
+                })
+                .map(|block_index| (message_index, block_index))
+        });
     let mut messages = Vec::with_capacity(request.items.len());
-    for item in &request.items {
+    for (message_index, item) in request.items.iter().enumerate() {
         let role = match item.role {
             Role::System => "system",
             Role::Developer => "developer",
@@ -201,17 +231,22 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
                 row["content"] = json!(value);
             }
             MessageContent::Blocks(blocks) => {
-                for block in blocks {
+                for (block_index, block) in blocks.iter().enumerate() {
                     match block {
                         ContentBlock::Text {
                             text: value,
                             cache_control,
                         } => {
+                            if value.is_empty() {
+                                continue;
+                            }
                             text.push(value.as_str());
                             let mut part = json!({"type":"text","text":value});
-                            if let Some(cache) = cache_control {
-                                part["cache_control"] = serde_json::to_value(cache)
-                                    .map_err(|_| unsupported_request())?;
+                            if cache_control.is_some()
+                                || cache_breakpoint == Some((message_index, block_index))
+                            {
+                                // canonical 的 ttl/断点优先级不是 CLI wire 字段。
+                                part["cache_control"] = json!({"type":"ephemeral"});
                             }
                             contents.push(part);
                         }
@@ -336,18 +371,15 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
     if let Some(instructions) = &request.instructions {
         messages.insert(0, json!({"role":"system","content":instructions}));
     }
-    let mut tools = Vec::new();
+    let mut tools = Vec::with_capacity(request.tools.as_ref().map_or(0, Vec::len));
     if let Some(specs) = &request.tools {
         for spec in specs {
-            if spec.strict.is_some() || spec.cache_control.is_some() || spec.meta.is_some() {
-                return Err(unsupported_request());
-            }
             tools.push(json!({"type":"function","function":{"name":spec.name,"description":spec.description.as_deref().unwrap_or(""),"parameters":spec.parameters}}));
         }
     }
     parameters.insert("messages".into(), json!(messages));
     parameters.insert("tools".into(), json!(tools));
-    Ok(Value::Object(std::mem::take(parameters)))
+    Ok(Value::Object(parameters))
 }
 
 fn remote_image(source: &MediaSource) -> Result<Value, PluginError> {
@@ -369,13 +401,16 @@ fn remote_result(content: &Value) -> Result<Value, PluginError> {
     let mut wire = Vec::with_capacity(parts.len());
     for part in parts {
         match part.get("type").and_then(Value::as_str) {
-            Some("text") => wire.push(part.clone()),
+            Some("text") => wire.push(json!({"type":"text","text":part["text"]})),
             Some("image") => {
                 let source: MediaSource = serde_json::from_value(part["source"].clone())
                     .map_err(|_| unsupported_request())?;
                 wire.push(remote_image(&source)?);
             }
-            Some("image_url") => wire.push(part.clone()),
+            Some("image_url") => wire.push(json!({
+                "type":"image_url",
+                "image_url":{"url":part["image_url"]["url"]}
+            })),
             _ => return Err(unsupported_request()),
         }
     }
@@ -393,7 +428,7 @@ fn remote_result(content: &Value) -> Result<Value, PluginError> {
 fn unsupported_request() -> PluginError {
     common::plugin_error(
         ErrorKind::Invalid,
-        "Qoder RemoteChatAsk cannot represent this request option or content",
+        "Qoder RemoteChatAsk cannot represent this message content",
     )
 }
 
@@ -425,10 +460,6 @@ fn build_body(
         ));
     }
     let tools = parameters.remove("tools").unwrap_or_else(|| json!([]));
-    parameters.remove("model");
-    parameters.remove("stream");
-    // RemoteChatAsk 在外层启用流式传输，不发送 OpenAI stream_options。
-    parameters.remove("stream_options");
     let mut system = parameters.remove("system").unwrap_or_else(|| json!([]));
     if let Some(rows) = messages.as_array_mut() {
         // S8e 单独接收 system，并在历史开头插入一条同内容消息。
@@ -469,9 +500,6 @@ fn build_body(
             rows.insert(0, json!({"role":"system","content":system}));
         }
     }
-    if let Some(limit) = parameters.remove("max_completion_tokens") {
-        parameters.entry("max_tokens".to_owned()).or_insert(limit);
-    }
     if parameters.get("preserve_thinking").and_then(Value::as_bool) == Some(false)
         && let Some(rows) = messages.as_array_mut()
     {
@@ -483,9 +511,9 @@ fn build_body(
             }
         }
     }
-    // yci/S8e 只定义这些生成参数；未知选项明确报错，不静默丢弃用户语义。
-    if parameters.keys().any(|key| {
-        !matches!(
+    // yci/S8e 只定义这些生成参数；未知字段在编码和签名前静默丢弃。
+    parameters.retain(|key, _| {
+        matches!(
             key.as_str(),
             "temperature"
                 | "top_p"
@@ -498,12 +526,7 @@ fn build_body(
                 | "context_length"
                 | "tool_choice"
         )
-    }) {
-        return Err(common::plugin_error(
-            ErrorKind::Invalid,
-            "Qoder RemoteChatAsk does not support this generation option",
-        ));
-    }
+    });
     // Zel 逐字段构造配置，不把目录条目或其他 metadata 原样发送。
     let catalog = metadata.and_then(Value::as_object);
     if metadata.is_some() && catalog.is_none() {
@@ -588,6 +611,7 @@ fn build_body(
         .and_then(Value::as_str)
         .unwrap_or("");
     let id = uuid::Uuid::new_v4().to_string();
+    let request_set_id = uuid::Uuid::new_v4().to_string();
     let mut name_end = 0;
     let mut name_units = 0;
     for (offset, character) in prompt.char_indices() {
@@ -600,7 +624,7 @@ fn build_body(
     // 正常 CLI 在首轮推理前创建 AgentLifecycle 并进入 start；Qwen 路由依赖此上下文。
     // 标题遵守十个 UTF-16 单元上限，但不生成被截断的半个代理对。
     Ok(json!({
-        "request_id": id, "request_set_id": id, "session_id": session, "chat_record_id": id,
+        "request_id": id, "request_set_id": request_set_id, "session_id": session, "chat_record_id": id,
         "stream": true, "chat_task": "FREE_INPUT", "chat_context": {"text":prompt,"features":[],"extra":{"context":[],"modelConfig":{"key":model,"is_reasoning":reasoning},"originalContent":prompt},"chatPrompt":"","imageUrls":null}, "is_reply": true,
         "is_retry": false, "source": 1, "version": "3", "agent_id": "agent_common",
         "task_id": "common", "session_type": if region == Region::Cn {"qoderclicn"} else {"qodercli"}, "aliyun_user_type": "",
@@ -1140,5 +1164,46 @@ mod tests {
             on.pointer("/parameters/reasoning_budget_tokens"),
             Some(&json!(100))
         );
+    }
+
+    #[test]
+    fn tool_result_parts_keep_payload_without_extra_transport_fields() {
+        let result = remote_result(&json!([
+            {"type":"text","text":"result","cache_control":{"type":"ephemeral"},"extra":"ignored"},
+            {"type":"image_url","image_url":{"url":"https://example.invalid/result.png","detail":"high","extra":"ignored"},"extra":"ignored"}
+        ]))
+        .unwrap();
+        assert_eq!(
+            result,
+            json!([
+                {"type":"text","text":"result"},
+                {"type":"image_url","image_url":{"url":"https://example.invalid/result.png"}}
+            ])
+        );
+    }
+
+    #[test]
+    fn unknown_generation_fields_do_not_override_native_request_context() {
+        let body = build_body(
+            json!({
+                "messages":[{"role":"user","content":"hello"}],
+                "temperature":0.25,"max_tokens":1234,
+                "seed":42,"stop":["ignored"],"response_format":{"type":"json_object"},
+                "session_id":"client-session","business":{"id":"client-business"},
+                "prompt_cache_key":"client-cache"
+            }),
+            "remote",
+            "system",
+            "host-session",
+            Region::Global,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            body["parameters"],
+            json!({"temperature":0.25,"max_tokens":1234})
+        );
+        assert_eq!(body["session_id"], "host-session");
+        assert_ne!(body["business"]["id"], "client-business");
     }
 }

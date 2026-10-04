@@ -56,11 +56,61 @@ API Key:  由 Stravia 访问控制配置决定
 
 模型发现不发起推理，也不根据余额猜测模型是否免费。宿主提供的管理员静态模型 ID 列表可覆盖远端发现；该列表只接受字符串 ID，相关可用性仍由上游决定。
 
-同一宿主会话通过 `session_affinity` 维持上游会话亲和；没有亲和元数据时使用本轮独立 ID。每轮生成独立请求 ID，不使用客户端自报的会话标识。
+当前 Stravia 宿主将本地 GenerationChain 根按 Principal / Target 隔离后，派生为操作元数据中的 `session_affinity`；WorkBuddy 插件使用的也是此键。Qoder 插件对该键计算 `SHA-256("qoder-session-v1\0" || affinity)`，取前 16 字节并设置 CLI UUID 的版本/variant 位，生成规范的 `session_id`。这是确定性格式转换，不是重新生成随机会话：同一宿主链路各轮保持一致，不同链路隔离。没有该元数据的旧宿主或独立调用仍使用本轮随机 UUID，不能保证跨轮亲和。
 
-每次推理创建独立的 `business` 上下文，包含 CLI 产品/协议版本、`agent` 类型、独立 UUID、开始时间和 `start` 阶段。标题取当前提示的有效 Unicode 前缀，最长 10 个 UTF-16 单元，不生成半个代理对。该对象是上游业务路由所需的请求组成部分，不是可随意省略的日志字段；插件不额外调用业务上报服务。
+每次 canonical Infer 创建一个原生请求组：`request_id` / `chat_record_id` 共用一枚 UUID，`request_set_id` 使用另一枚独立 UUID。每次推理还创建独立的 `business` 上下文，包含 CLI 产品/协议版本、`agent` 类型、独立 UUID、开始时间和 `start` 阶段。标题取当前提示的有效 Unicode 前缀，最长 10 个 UTF-16 单元，不生成半个代理对。该对象是上游业务路由所需的请求组成部分，不是可随意省略的日志字段；插件不额外调用业务上报服务。
 
-推理直接投影 canonical IR，不再借用会拆分和重排并行历史的 OpenAI 编码器。工具结果错误标记仅在输入 IR 中存在时保留；若入口 codec 已丢弃标记，插件无法从原始客户端 wire 恢复。无法表达的内容或生成选项明确报错，不静默忽略。
+推理直接投影 canonical IR，不再借用会拆分和重排并行历史的 OpenAI 编码器。工具结果错误标记仅在输入 IR 中存在时保留；若入口 codec 已丢弃标记，插件无法从原始客户端 wire 恢复。白名单外的请求选项静默忽略，不发送、不告警，也不因为这些选项拒绝推理；非法凭据、区域、配置和无法表达的实际消息内容仍明确报错。
+
+### 请求白名单
+
+依据官方 CLI `1.1.65` 发布包中的 `yci` / `s3A` / `S8e` / `Zel` / `FWc` / `UWc` / `vWc` / `MWc` 构造器逐字段生成请求，不把入口请求或模型目录对象整体复制到上游：
+
+- `parameters` 仅允许 `temperature`、`top_p`、`top_k`、`max_tokens`、`reasoning_effort`、`enable_thinking`、`reasoning_budget_tokens`、`preserve_thinking`、`context_length`、`tool_choice`。许可不代表当前 canonical IR 能表达每一项；现有入口映射 generation、reasoning、Anthropic `top_k` 和工具选择，保留既有输出上限及思考开关规则。
+- `seed`、`stop`、`presence_penalty`、`frequency_penalty`、`response_format`、并行工具控制、其他协议扩展及工具声明的 `strict` / `cache_control` / `meta` 静默忽略。工具参数 JSON Schema、调用参数和 JSON 工具结果属于用户负载，不按字段名递归过滤；例如 schema 中名为 `seed` 的属性仍完整保留。
+- 文本内容缓存标记仅发送 CLI 的 `cache_control: {"type":"ephemeral"}`，不发送 canonical 的 `ttl` / `breakpoint_priority`。同时遵循官方正常推理的自动断点规则，见下文。工具结果文本仅投影 `type` / `text`，图片仅投影 `type` / `image_url.url`，不复制额外字段。
+- 所有客户端请求头静默忽略，包括与原生签名、身份、模型头同名的头。出站头只由协议构造器、已验证凭据及配置的客户端身份生成；不会让客户端覆盖 `Authorization` 或 `Cosy-*`。
+
+签名推理请求的显式请求头集合为：
+
+| 类别 | 请求头 |
+|---|---|
+| 传输 | `Accept`、`Content-Type`、`Cache-Control`、`Connection` |
+| 签名 | `Authorization`、`Cosy-Date`、`Cosy-Key`、`Login-Version` |
+| CLI 身份与业务 | `Cosy-Business-Product`、`Cosy-Business-Type`、`Cosy-ClientType`、`Cosy-Data-Policy`、`Cosy-MachineId`、`Cosy-MachineOS`、`Cosy-MachineHostname`、`Cosy-Scene`、`Cosy-User`、`Cosy-Version` |
+| 条件字段 | 非空组织身份的 `Cosy-Organization-Id` / `Cosy-Organization-Tags`，已选模型的 `X-Model-Key` / `X-Model-Source` |
+
+模型目录、数据政策、OAuth 和额度请求继续使用各自逐字段构造的请求头与请求体，不接入客户端头透传。HTTP 宿主自动生成的 `Host` / `Content-Length` 等传输字段不属于插件的参数透传。
+
+### 缓存键与会话键对照
+
+官方来源为上文链接的 npm 发布包，以下结论来自实际 RemoteChatAsk 构造器及缓存函数，不以通用 `chat.proto` 的可选字段代替真实发送行为：
+
+| 字段 / 机制 | 官方 CLI | 当前插件 |
+|---|---|---|
+| `session_id` | `S8e` 必填会话值 | 由宿主 GenerationChain 亲和键确定性转换为 CLI UUID 布局；同链稳定 |
+| `request_id` / `chat_record_id` | 当前请求共用同一 ID | 已发送同一本轮随机 UUID |
+| `request_set_id` | `S8e` 接受独立请求组 ID；正常 `Zsl` / `AgentLifecycle` 路径传入组值 | 每次 Infer 创建独立请求组 UUID，不再等同请求 ID |
+| `business.id` | `AgentLifecycle` 创建业务 ID，特定调用可复用预分配组值 | 已发送本轮独立业务 UUID |
+| `agent_id` / `task_id` | 业务路由字符串，不是会话 UUID | 保留正常路由 `agent_common` / `common`，不拿宿主链路 ID 替代 |
+| 签名 payload `requestId` | 认证签名协议的请求标识 | 保留独立的本次签名 UUID，不将其误认为会话键 |
+| 内容 `cache_control` | `DlA` 在转换工具结果前调用 `Fgi` 选择断点，随后由 `FWc` / `UWc` 投影 | 已实现正常推理自动断点及显式文本缓存标记；只发送 CLI 字段 |
+| `source_session_id` | `S8e` / `Zsl` 条件性传递分支或恢复的来源会话 | 当前宿主未给出此类来源会话状态，正常请求不发送；不拿 GenerationChain 直接父节点或客户端自报值冒充 |
+| `custom_context` / `patches` | `S8e` / `Zsl` 支持可选上下文及补丁 | 未建立相应 CLI 上下文/补丁状态，不透传任意对象 |
+
+当前宿主给插件的执行元数据提供稳定 `session_affinity`，没有独立的 GenerationChain 当前节点、父节点或请求组 ID 契约；插件不从可丢失的 Observation 记录反向拼造身份，也不读取可能来自客户端的 `__stravia_generation_session_id` 作为官方会话。请求组和业务 ID 的范围是一轮 Infer，不声称复刻宿主未交付的完整 CLI Agent 生命周期。
+
+自动缓存断点按官方 `Fgi` 的默认 `skipCacheWrite=false` 路径处理：
+
+1. 在拆分工具结果前，选择最后一条非 system/developer 历史；仅处理内容块数组，字符串历史不自动加标记。
+2. 从该消息末尾向前选择第一个非 thinking、redacted thinking、tool use、tool result 的块。canonical reasoning 块作为 thinking 处理。只在这条消息内查找，不回退到更早消息。
+3. 选中文本时发送 `{"type":"ephemeral"}`；既有显式文本缓存标记仍保留。选中图片时，官方 `MWc` 图像转换不会传出该标记，不能改为标记更早文本。选中空文本时，官方转换丢弃空文本，同样不能挪动断点。
+
+CLI 的侧路辅助请求可用 `skipCacheWrite=true` 选择倒数第二条消息；当前 canonical Infer 没有该 CLI 工作流状态，插件不新增自报控制键或假造侧路请求。官方标记规则已经从发布包定位并以合成输入执行核对，因此无需采用 Claude 插件的替代规则。
+
+原生 `S8e` 路径没有独立的 OpenAI/Responses 风格缓存键；这些入口字段不出站。非原生的 `max_completion_tokens` 别名处理已删除，入口 codec 转为 canonical `max_tokens` 后才参与原生投影。发布包 `chat.proto` 虽定义了 `cache_id`，核对的原生构造路径未发现赋值，不额外发送。CLI tracing 头依赖其遥测上下文；插件不伪造这些值。
+
+是否命中上游缓存、缓存 TTL 或计费收益不能由静态字段判断；本次离线验证不调用真实账号，也未修改宿主会话接口。
 
 ## 构建与验证
 
@@ -124,6 +174,14 @@ vendor/             消息编译器与第三方许可证
 ```
 
 ## 变更记录
+
+### 未发布
+
+- 白名单外的请求参数从拒绝请求改为静默忽略；请求头保持原生逐字段构造，所有客户端头均不透传。
+- 将显式文本缓存标记映射为 CLI 的 `type: ephemeral`，移除 canonical 私有缓存字段和工具结果内容中的额外传输字段，保留工具 schema 与结果负载。
+- 将当前宿主 GenerationChain 派生的 `session_affinity` 转换为稳定的原生会话 UUID；为每轮请求、请求组和业务分别生成官方格式 ID，不将会话或父节点冒充请求组/来源会话。
+- 按官方 `DlA` / `Fgi` / `FWc` / `UWc` 实现自动缓存断点，覆盖工具结果拆分、助手工具调用、图片和空文本边界；删除非原生输出上限别名处理。
+- 新增两区域真实 Wasm 组件回归，覆盖非 CLI 参数、客户端签名/身份覆盖尝试、稳定会话与独立请求组、自动缓存断点及合法请求语义；修正此前将旧固定宿主行为套到当前宿主的分析。
 
 ### 0.1.8
 

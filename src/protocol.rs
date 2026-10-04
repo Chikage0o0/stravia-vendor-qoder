@@ -493,6 +493,7 @@ fn prepare_at(
         digest.update(part.as_bytes());
     }
     let authorization = format!("Bearer COSY.{payload}.{:x}", digest.finalize());
+    // 白名单采用逐字段构造；客户端头（包括同名签名/身份头）一律不参与。
     let mut headers = vec![
         (
             "Accept".into(),

@@ -183,6 +183,10 @@ const REGIONS: [RegionFixture; 2] = [
     },
 ];
 
+const SESSION_AFFINITY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+// 独立 SHA-256 / UUID 计算向量，不调用插件映射函数。
+const NATIVE_SESSION_ID: &str = "da1d99f3-7262-418d-8e46-1c89789b4de3";
+
 fn snapshot(region: RegionFixture) -> ProviderSnapshot {
     ProviderSnapshot {
         provider_id: "qoder".into(),
@@ -194,10 +198,7 @@ fn snapshot(region: RegionFixture) -> ProviderSnapshot {
         model: Some("synthetic-model".into()),
         model_metadata: None,
         client_headers: Vec::new(),
-        operation_metadata: BTreeMap::from([(
-            "session_affinity".into(),
-            json!("synthetic-session"),
-        )]),
+        operation_metadata: BTreeMap::from([("session_affinity".into(), json!(SESSION_AFFINITY))]),
     }
 }
 
@@ -983,6 +984,7 @@ async fn official_cli_parallel_history_contract() {
         assert_ne!(business["id"], actual["request_id"]);
         oracle["business"]["id"] = business["id"].clone();
         oracle["business"]["begin_at"] = business["begin_at"].clone();
+        oracle["session_id"] = json!(NATIVE_SESSION_ID);
         for key in ["request_id", "request_set_id", "chat_record_id"] {
             oracle[key] = actual[key].clone();
         }
@@ -1037,6 +1039,409 @@ async fn official_cli_parallel_history_contract() {
             "{}: official CLI body oracle and native client identity headers accepted",
             region.channel
         );
+    }
+}
+
+#[tokio::test]
+#[ignore = "build the release wasm32-wasip2 component first"]
+async fn official_cli_ignores_non_cli_request_fields_contract() {
+    let runtime = VendorRuntime::new().unwrap();
+    let plugin = runtime.load(&artifact()).await.unwrap();
+    let schema = json!({
+        "type":"object",
+        "properties":{
+            "seed":{"type":"integer"},
+            "strict":{"type":"boolean"},
+            "cache_control":{"type":"string"},
+            "meta":{"type":"object"},
+            "response_format":{"type":"string"},
+            "parallel_tool_calls":{"type":"boolean"}
+        },
+        "required":["seed","strict"]
+    });
+    for region in REGIONS {
+        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let mut provider = snapshot(region);
+        runtime
+            .execute(
+                &plugin,
+                region.channel,
+                auth(
+                    &provider,
+                    AuthStep::Start {
+                        redirect_uri: String::new(),
+                        state: "synthetic-whitelist-state".into(),
+                    },
+                ),
+                local.scope(),
+            )
+            .await
+            .unwrap();
+        profile_replies(
+            &local,
+            "synthetic-whitelist-token",
+            "synthetic-whitelist-refresh",
+        );
+        provider.credentials = credentials(
+            runtime
+                .execute(
+                    &plugin,
+                    region.channel,
+                    auth(&provider, AuthStep::Poll),
+                    local.scope(),
+                )
+                .await
+                .unwrap(),
+        );
+        provider.client_headers = [
+            "authorization",
+            "COSY-KEY",
+            "Cosy-Date",
+            "Cosy-User",
+            "Cosy-MachineId",
+            "Cosy-MachineOS",
+            "Cosy-MachineHostname",
+            "Cosy-Organization-Id",
+            "Cosy-Organization-Tags",
+            "Cosy-Data-Policy",
+            "Cosy-Version",
+            "Cosy-ClientType",
+            "Cosy-Business-Product",
+            "Cosy-Business-Type",
+            "Cosy-Scene",
+            "X-Model-Key",
+            "X-Custom",
+        ]
+        .into_iter()
+        .map(|name| (name.into(), "malicious-client-override".into()))
+        .collect();
+        let mut input = request();
+        // 直接设置 canonical IR 的已知字段，避免入口 codec 丢弃扩展造成伪覆盖。
+        input.generation.temperature = Some(0.25);
+        input.generation.top_p = Some(0.75);
+        input.generation.max_tokens = Some(1234);
+        input.generation.seed = Some(42);
+        input.generation.stop = Some(vec!["ignored-stop".into()]);
+        input.generation.presence_penalty = Some(0.5);
+        input.generation.frequency_penalty = Some(-0.5);
+        input.response_format =
+            Some(serde_json::from_value(json!({"type":"json_object"})).unwrap());
+        input.parallel_tool_calls = Some(false);
+        input.disable_parallel_tool_calls = Some(true);
+        input.items[0].content =
+            stravia_runtime_contract::protocol::ir::MessageContent::Blocks(vec![
+                stravia_runtime_contract::protocol::ir::ContentBlock::Text {
+                    text: "你好".into(),
+                    cache_control: Some(
+                        serde_json::from_value(
+                            json!({"ttl":"ephemeral1h","breakpoint_priority":1}),
+                        )
+                        .unwrap(),
+                    ),
+                },
+            ]);
+        let tool = &mut input.tools.as_mut().unwrap()[0];
+        tool.parameters = schema.clone();
+        tool.strict = Some(true);
+        tool.cache_control = Some(
+            serde_json::from_value(json!({"ttl":"ephemeral1h","breakpoint_priority":1})).unwrap(),
+        );
+        tool.meta = Some(json!({"non_cli_tool_metadata":"ignored"}));
+        let completed = envelope(json!({
+            "id":"synthetic-whitelist-response","model":"synthetic-model",
+            "choices":[{"index":0,"delta":{"content":"accepted"},"finish_reason":"stop"}]
+        })) + &envelope(json!({
+            "id":"synthetic-whitelist-response","model":"synthetic-model","choices":[],
+            "usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}
+        })) + "event: finish\ndata: {}\n\n";
+        local.reply(Reply::stream(&completed, 7));
+        let wire = response_wire(
+            runtime
+                .execute(
+                    &plugin,
+                    region.channel,
+                    OperationInput::Infer {
+                        provider: provider.clone(),
+                        request: input,
+                    },
+                    local.scope(),
+                )
+                .await
+                .unwrap(),
+        );
+        assert_eq!(wire["choices"][0]["message"]["content"], "accepted");
+        assert_eq!(wire["choices"][0]["finish_reason"], "stop");
+        assert_eq!(wire["usage"]["prompt_tokens"], 11);
+        assert_eq!(wire["usage"]["completion_tokens"], 7);
+        assert_eq!(wire["usage"]["total_tokens"], 18);
+        let requests = local.requests.lock();
+        let outbound = requests.last().unwrap();
+        let body = verify_signed(
+            outbound,
+            region.infer,
+            "/api/v2/service/pro/sse/agent_chat_generation",
+            "synthetic-user",
+        )
+        .unwrap();
+        assert_eq!(
+            body["parameters"],
+            json!({"temperature":0.25,"top_p":0.75,"max_tokens":1234}),
+            "only CLI generation options may reach the transport"
+        );
+        for field in [
+            "seed",
+            "stop",
+            "presence_penalty",
+            "frequency_penalty",
+            "response_format",
+            "parallel_tool_calls",
+            "disable_parallel_tool_calls",
+        ] {
+            assert!(body.get(field).is_none(), "unexpected top-level {field}");
+        }
+        let outbound_tool = &body["tools"][0];
+        assert_eq!(outbound_tool["function"]["name"], "weather");
+        assert_eq!(
+            outbound_tool["function"]["parameters"], schema,
+            "schema properties are user data, not transport options"
+        );
+        for field in ["strict", "cache_control", "meta"] {
+            assert!(
+                outbound_tool.get(field).is_none(),
+                "unexpected tool {field}"
+            );
+            assert!(
+                outbound_tool["function"].get(field).is_none(),
+                "unexpected function {field}"
+            );
+        }
+        assert_eq!(body["messages"][0]["content"], "你好");
+        assert_eq!(
+            body["messages"][0]["contents"],
+            json!([{"type":"text","text":"你好","cache_control":{"type":"ephemeral"}}]),
+            "canonical cache settings must use the CLI shape, without TTL or priority fields"
+        );
+        assert_eq!(header(outbound, "X-Model-Key"), "synthetic-model");
+        assert_eq!(
+            header(outbound, "Cosy-MachineId"),
+            provider.credentials["machine_id"].as_str().unwrap()
+        );
+        assert_eq!(header(outbound, "Cosy-Organization-Id"), "synthetic-org");
+        assert_eq!(header(outbound, "Cosy-Organization-Tags"), "synthetic-tag");
+        assert_eq!(header(outbound, "Cosy-Data-Policy"), "agree");
+        assert!(
+            outbound.headers.iter().all(|(name, value)| {
+                !name.eq_ignore_ascii_case("X-Custom") && value != "malicious-client-override"
+            }),
+            "client headers must neither pass through nor override native signing and identity"
+        );
+        for (name, _) in &provider.client_headers {
+            assert!(
+                outbound
+                    .headers
+                    .iter()
+                    .filter(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+                    .count()
+                    <= 1,
+                "client header {name} must not append a competing native header"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "build the release wasm32-wasip2 component first"]
+async fn official_cli_cache_boundaries_and_chain_identity_contract() {
+    use stravia_runtime_contract::protocol::ir::{ContentBlock, MessageContent, Role};
+    let runtime = VendorRuntime::new().unwrap();
+    let plugin = runtime.load(&artifact()).await.unwrap();
+    let region = REGIONS[0];
+    let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+    let mut provider = snapshot(region);
+    provider.model_metadata = Some(stravia_vendor_sdk::ModelMetadata {
+        id: Some("synthetic-model".into()),
+        family: None,
+        selector: None,
+        capabilities: Default::default(),
+        extensions: BTreeMap::from([(
+            "qoder_model_config".into(),
+            json!({"is_vl":true,"source":"system"}),
+        )]),
+    });
+    runtime
+        .execute(
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: "synthetic-cache-state".into(),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
+    profile_replies(&local, "synthetic-cache-token", "synthetic-cache-refresh");
+    provider.credentials = credentials(
+        runtime
+            .execute(
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Poll),
+                local.scope(),
+            )
+            .await
+            .unwrap(),
+    );
+    let text = |value: &str| ContentBlock::Text {
+        text: value.into(),
+        cache_control: None,
+    };
+    let tool_use = || ContentBlock::ToolUse {
+        id: "call_boundary".into(),
+        name: "weather".into(),
+        input: json!({"city":"杭州"}),
+        cache_control: None,
+    };
+    let mut assistant = request().items.remove(0);
+    assistant.role = Role::Assistant;
+    assistant.content = MessageContent::Blocks(vec![text("prior"), tool_use()]);
+    let mut excluded = request();
+    let mut result = excluded.items.remove(0);
+    result.content = MessageContent::Blocks(vec![ContentBlock::ToolResult {
+        tool_use_id: "call_boundary".into(),
+        content: json!("result"),
+        content_kind: None,
+        is_error: None,
+        cache_control: None,
+    }]);
+    excluded.items = vec![assistant.clone(), result];
+    let mut assistant_tail = request();
+    assistant_tail.items.push(assistant);
+    let mut image_tail = request();
+    image_tail.items[0].content = MessageContent::Blocks(vec![
+        text("before image"),
+        ContentBlock::Image {
+            source: stravia_runtime_contract::protocol::ir::MediaSource::Url(
+                "https://example.invalid/image.png".into(),
+            ),
+            detail: None,
+            cache_control: None,
+        },
+    ]);
+    let mut empty_tail = request();
+    empty_tail.items[0].content = MessageContent::Blocks(vec![text("before empty"), text("")]);
+    let expected_call = json!([{
+        "id":"call_boundary","type":"function","index":0,
+        "function":{"name":"weather","arguments":"{\"city\":\"杭州\"}"}
+    }]);
+    let cases = [
+        (
+            "tool-only tail does not mark previous messages",
+            excluded,
+            json!([
+                {"role":"assistant","content":"prior","contents":[{"type":"text","text":"prior"}],"tool_calls":expected_call},
+                {"role":"tool","tool_call_id":"call_boundary","content":"result"}
+            ]),
+        ),
+        (
+            "assistant text before excluded tool use is marked",
+            assistant_tail,
+            json!([
+                {"role":"user","content":"你好","contents":[{"type":"text","text":"你好"}]},
+                {"role":"assistant","content":"prior","contents":[{"type":"text","text":"prior","cache_control":{"type":"ephemeral"}}],"tool_calls":expected_call}
+            ]),
+        ),
+        (
+            "image breakpoint is not moved to earlier text",
+            image_tail,
+            json!([{
+                "role":"user",
+                "content":[{"type":"text","text":"before image"},{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}],
+                "contents":[{"type":"text","text":"before image"},{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}]
+            }]),
+        ),
+        (
+            "empty breakpoint is omitted without marking earlier text",
+            empty_tail,
+            json!([{"role":"user","content":"before empty","contents":[{"type":"text","text":"before empty"}]}]),
+        ),
+        (
+            "string histories are not automatically marked",
+            request(),
+            json!([{"role":"user","content":"你好","contents":[{"type":"text","text":"你好"}]}]),
+        ),
+    ];
+    let mut previous_ids: Option<(Value, Value)> = None;
+    for (index, (label, mut input, expected)) in cases.into_iter().enumerate() {
+        input.meta.vendor.ingress.insert(
+            "__stravia_generation_session_id".into(),
+            json!("client-controlled-session"),
+        );
+        input.meta.vendor.ingress.insert(
+            "source_session_id".into(),
+            json!("client-controlled-source"),
+        );
+        let expected_session = if index == 4 {
+            provider.operation_metadata.insert(
+                "session_affinity".into(),
+                json!("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"),
+            );
+            "9fb8b35c-8899-4520-90ae-97a7ffd9ccf4"
+        } else {
+            NATIVE_SESSION_ID
+        };
+        let completed = envelope(json!({
+            "id":"synthetic-boundary-response","model":"synthetic-model",
+            "choices":[{"index":0,"delta":{"content":"accepted"},"finish_reason":"stop"}]
+        })) + "event: finish\ndata: {}\n\n";
+        local.reply(Reply::stream(&completed, 7));
+        let wire = response_wire(
+            runtime
+                .execute(
+                    &plugin,
+                    region.channel,
+                    OperationInput::Infer {
+                        provider: provider.clone(),
+                        request: input,
+                    },
+                    local.scope(),
+                )
+                .await
+                .unwrap(),
+        );
+        assert_eq!(wire["choices"][0]["message"]["content"], "accepted");
+        let requests = local.requests.lock();
+        let body = verify_signed(
+            requests.last().unwrap(),
+            region.infer,
+            "/api/v2/service/pro/sse/agent_chat_generation",
+            "synthetic-user",
+        )
+        .unwrap();
+        assert_eq!(body["messages"], expected, "{label}");
+        assert_eq!(body["session_id"], expected_session, "{label}");
+        assert_eq!(body["request_id"], body["chat_record_id"]);
+        assert_ne!(body["request_id"], body["request_set_id"]);
+        if let Some((request_id, request_set_id)) = &previous_ids {
+            assert_ne!(&body["request_id"], request_id);
+            assert_ne!(&body["request_set_id"], request_set_id);
+        }
+        previous_ids = Some((body["request_id"].clone(), body["request_set_id"].clone()));
+        for key in [
+            "source_session_id",
+            "prompt_cache_key",
+            "prompt_cache_retention",
+            "previous_response_id",
+        ] {
+            assert!(body.get(key).is_none(), "{label}: unexpected {key}");
+            assert!(
+                body["parameters"].get(key).is_none(),
+                "{label}: unexpected {key}"
+            );
+        }
     }
 }
 
@@ -1115,6 +1520,14 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
         for chunk_size in [1, 7] {
             local.events.lock().clear();
             local.reply(Reply::stream(&stream(true), chunk_size));
+            let mut input = request();
+            input.items[0].content =
+                stravia_runtime_contract::protocol::ir::MessageContent::Blocks(vec![
+                    stravia_runtime_contract::protocol::ir::ContentBlock::Text {
+                        text: "你好".into(),
+                        cache_control: None,
+                    },
+                ]);
             let wire = response_wire(
                 runtime
                     .execute(
@@ -1122,7 +1535,7 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
                         region.channel,
                         OperationInput::Infer {
                             provider: provider.clone(),
-                            request: request(),
+                            request: input,
                         },
                         local.scope(),
                     )
@@ -1165,7 +1578,21 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
             )
             .unwrap();
             assert_eq!(body["model_config"]["key"], "synthetic-model");
-            assert_eq!(body["session_id"], "synthetic-session");
+            assert_eq!(body["session_id"], NATIVE_SESSION_ID);
+            assert_eq!(body["request_id"], body["chat_record_id"]);
+            assert_ne!(
+                body["request_set_id"], body["request_id"],
+                "the normal CLI lifecycle supplies a distinct request-set ID"
+            );
+            for key in ["request_id", "request_set_id", "session_id"] {
+                assert_eq!(
+                    uuid::Uuid::parse_str(body[key].as_str().unwrap())
+                        .unwrap()
+                        .get_version_num(),
+                    4,
+                    "{key} must use the native UUID layout"
+                );
+            }
             let user = body["messages"]
                 .as_array()
                 .unwrap()
@@ -1173,6 +1600,11 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
                 .find(|message| message["role"] == "user")
                 .unwrap();
             assert_eq!(user["content"], "你好");
+            assert_eq!(
+                user["contents"][0]["cache_control"],
+                json!({"type":"ephemeral"}),
+                "the CLI marks the last eligible block even without an explicit input cache hint"
+            );
             assert_eq!(body["tools"][0]["function"]["name"], "weather");
         }
         // A valid inner finish_reason and inner [DONE] are not authoritative completion.
