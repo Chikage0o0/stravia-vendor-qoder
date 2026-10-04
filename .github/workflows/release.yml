@@ -7,6 +7,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "待构建及发布的现有版本标签，例如 v0.1.8"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -14,8 +20,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       # rust-toolchain.toml 是工具链版本的唯一来源
       - name: Read rust-toolchain.toml
@@ -34,7 +44,7 @@ jobs:
 
       - name: Check tag matches Cargo.toml version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${RELEASE_TAG#v}"
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           echo "tag=$tag version=$version"
           test "$tag" = "$version" || { echo "::error::tag $tag does not match Cargo.toml version $version"; exit 1; }
@@ -49,7 +59,7 @@ jobs:
 
       - name: Package dist
         run: |
-          name="stravia-vendor-qoder-v${GITHUB_REF_NAME#v}.wasm"
+          name="stravia-vendor-qoder-v${RELEASE_TAG#v}.wasm"
           mkdir -p dist
           cp target/wasm32-wasip2/release/stravia_vendor_qoder.wasm "dist/$name"
           cp LICENSE NOTICE vendor/rust_decimal.LICENSE dist/
@@ -58,6 +68,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           # 保留人工发布且已真实验证的同名附件，不用 CI 重建产物覆盖它们。
           overwrite_files: false
