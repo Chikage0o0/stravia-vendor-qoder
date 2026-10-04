@@ -42,6 +42,11 @@ jobs:
       - name: Build wasm component
         run: cargo build --locked --release --lib --target wasm32-wasip2
 
+      - name: Verify unit and component contracts
+        run: |
+          cargo test --locked --lib
+          cargo test --locked --test component_contract -- --ignored --nocapture
+
       - name: Package dist
         run: |
           name="stravia-vendor-qoder-v${GITHUB_REF_NAME#v}.wasm"
@@ -54,4 +59,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # 保留人工发布且已真实验证的同名附件，不用 CI 重建产物覆盖它们。
+          overwrite_files: false
+          fail_on_unmatched_files: true
           files: dist/*

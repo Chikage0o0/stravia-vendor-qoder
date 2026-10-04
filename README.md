@@ -105,7 +105,7 @@ task test
 
 上游互操作协议固定使用 AES-CBC、RSA PKCS#1 v1.5 和 MD5 签名；这些选择不是新设计的通用安全协议，不应在其他场景复用。传输依赖 HTTPS，安全熵失败时明确报错，不使用伪随机降级。
 
-Release workflow 由 `v*` tag 触发，tag 版本必须与 `Cargo.toml` 一致。构建命令本身不发布、不推送。附件包含组件、`SHA256SUMS`、`LICENSE`、`NOTICE` 和第三方组件许可证。
+Release workflow 由 `v*` tag 触发，tag 版本必须与 `Cargo.toml` 一致；构建后先运行单元测试和实际 Wasm 组件契约，再发布附件。已有同名 Release 附件会保留，避免 CI 重建覆盖人工发布且已真实验证的产物。构建命令本身不发布、不推送。附件包含组件、`SHA256SUMS`、`LICENSE`、`NOTICE` 和第三方组件许可证。
 
 ## 项目结构
 
