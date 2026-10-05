@@ -45,9 +45,13 @@ pub(crate) fn execute(
         .get("uid")
         .and_then(Value::as_str)
         .ok_or_else(|| malformed("account identity missing"))?;
-    parse(&payload, expected)
+    parse(&payload, expected, region)
 }
-fn parse(payload: &Value, expected: &str) -> Result<AllowanceResponse, PluginError> {
+fn parse(
+    payload: &Value,
+    expected: &str,
+    region: Region,
+) -> Result<AllowanceResponse, PluginError> {
     if field(payload, "user_id", "userId").and_then(Value::as_str) != Some(expected) {
         return Err(malformed("quota account identity mismatch"));
     }
@@ -56,18 +60,26 @@ fn parse(payload: &Value, expected: &str) -> Result<AllowanceResponse, PluginErr
         .filter(|s| !s.is_empty())
         .ok_or_else(|| malformed("quota user type missing"))?;
     let mut allowances = Vec::new();
-    for (snake, camel, key, label) in [
-        ("user_quota", "userQuota", "qoder_user_quota", "User quota"),
+    for (snake, camel, key, label_cn, label_global) in [
+        (
+            "user_quota",
+            "userQuota",
+            "qoder_user_quota",
+            "个人额度",
+            "User quota",
+        ),
         (
             "add_on_quota",
             "addOnQuota",
             "qoder_add_on_quota",
+            "附加额度",
             "Add-on quota",
         ),
         (
             "org_resource_package",
             "orgResourcePackage",
             "qoder_org_quota",
+            "组织共享额度",
             "Organization shared quota",
         ),
     ] {
@@ -82,8 +94,12 @@ fn parse(payload: &Value, expected: &str) -> Result<AllowanceResponse, PluginErr
             allowances.push(item(
                 row,
                 key,
-                label,
+                match region {
+                    Region::Cn => label_cn,
+                    Region::Global => label_global,
+                },
                 field(payload, "expires_at", "expiresAt"),
+                region,
             )?);
         }
     }
@@ -110,8 +126,12 @@ fn parse(payload: &Value, expected: &str) -> Result<AllowanceResponse, PluginErr
                 &format!("qoder_dedicated_{id}"),
                 row.get("name")
                     .and_then(Value::as_str)
-                    .unwrap_or("Dedicated quota"),
+                    .unwrap_or(match region {
+                        Region::Cn => "专属额度",
+                        Region::Global => "Dedicated quota",
+                    }),
                 None,
+                region,
             )?);
         }
     }
@@ -146,6 +166,7 @@ fn item(
     key: &str,
     label: &str,
     expiry: Option<&Value>,
+    region: Region,
 ) -> Result<AllowanceItem, PluginError> {
     if !row.is_object() {
         return Err(malformed("quota entry is not an object"));
@@ -194,7 +215,13 @@ fn item(
         .or_else(|| row.get("status").and_then(Value::as_str).map(str::to_owned));
     Ok(AllowanceItem {
         key: key.into(),
-        label: label.into(),
+        // 宿主摘要和明细共用 label；总量放标题，数值字段保留原始额度语义。
+        label: match (region, total) {
+            (Region::Cn, Some(total)) => format!("{label} · 总计 {}", total.normalize()),
+            (Region::Cn, None) => format!("{label} · 总计 —"),
+            (Region::Global, Some(total)) => format!("{label} · Total {}", total.normalize()),
+            (Region::Global, None) => format!("{label} · Total —"),
+        },
         kind: "balance".into(),
         used: used.map(amount),
         remaining: remaining.map(amount),
@@ -231,14 +258,15 @@ mod tests {
         assert!(
             parse(
                 &json!({"user_id":"u","user_type":"free","user_quota":{"unit":"credits"}}),
-                "u"
+                "u",
+                Region::Cn
             )
             .is_err()
         );
     }
     #[test]
     fn quota_preserves_packages_and_fraction_percent() {
-        let result = parse(&json!({"user_id":"u","user_type":"pro","user_quota":{"remaining":"12.5","percentage":0.25,"unit":"credits"},"dedicated_resource_packages":[{"id":"p","remaining":7,"expires_at":"2026-01-01T00:00:00Z","available":false}]}),"u").unwrap();
+        let result = parse(&json!({"user_id":"u","user_type":"pro","user_quota":{"remaining":"12.5","percentage":0.25,"unit":"credits"},"dedicated_resource_packages":[{"id":"p","remaining":7,"expires_at":"2026-01-01T00:00:00Z","available":false}]}),"u",Region::Cn).unwrap();
         assert_eq!(
             result.allowances[0].remaining.as_ref().unwrap().value,
             "12.5"
