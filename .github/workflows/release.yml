@@ -20,12 +20,23 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source/stravia-vendor-qoder
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
+          path: source/stravia-vendor-qoder
+
+      - name: Checkout Stravia host SDK
+        uses: actions/checkout@v4
+        with:
+          repository: Stravia-AI/StraviaPlatform
+          ref: ${{ vars.STRAVIA_PLATFORM_REF || 'main' }}
+          path: source/worktrees/StraviaPlatform/merfolk
 
       # rust-toolchain.toml 是工具链版本的唯一来源
       - name: Read rust-toolchain.toml
@@ -41,6 +52,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: wasm32-wasip2
+          workspaces: source/stravia-vendor-qoder -> target
 
       - name: Check tag matches Cargo.toml version
         run: |
@@ -73,4 +85,4 @@ jobs:
           # 保留人工发布且已真实验证的同名附件，不用 CI 重建产物覆盖它们。
           overwrite_files: false
           fail_on_unmatched_files: true
-          files: dist/*
+          files: source/stravia-vendor-qoder/dist/*

@@ -2,6 +2,8 @@ Qoder Vendor Plugin
 
 本插件是面向 Qoder 的非官方集成，并非阿里巴巴或 Qoder 官方发布；本项目与阿里巴巴及 Qoder 不存在隶属关系，也未获其背书。上游服务、产品名称及商标归各自权利人所有。
 
+assets/qoder.svg 来源：https://qoder.com/favIcon.svg。保留官方图形路径，移除背景并转换为透明单色以适配界面主题。该品牌标志不属于本项目 MIT 授权范围；公开可下载不代表获得商标使用或再分发许可，使用和分发须遵守权利人条款：https://qoder.com/product-service。
+
 原生协议实现依据官方 Qoder CLI 1.1.65 发布包的静态源码和全合成离线互操作研究。本仓库及生产组件不分发、嵌入或执行官方 CLI 的认证 WebAssembly，不包含用户凭据、捕获流量或本地账号缓存。社区项目仅作协议对照，未直接复制 AGPL 实现源码。
 
 本项目源码采用 MIT 许可证。第三方依赖保持各自许可证；已附带的 rust_decimal 声明见 vendor/rust_decimal.LICENSE。使用者须持有自己的合法账号，并遵守上游服务条款和适用法律。

@@ -83,6 +83,7 @@ fn start(
     write_pending(host, &pending)?;
     Ok(AuthResponse::Authorization {
         url: url.clone(),
+        state: None,
         user_code: None,
         verification_uri: Some(url),
         interval_seconds: Some(1),

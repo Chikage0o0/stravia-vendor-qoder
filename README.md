@@ -114,6 +114,10 @@ CLI 的侧路辅助请求可用 `skipCacheWrite=true` 选择倒数第二条消�
 
 ## 构建与验证
 
+当前源码通过相对路径使用支持 `ProviderDescriptor.icon_svg` 的 Stravia checkout。构建前保持如下目录关系：插件目录旁的 `worktrees/StraviaPlatform/merfolk/` 为对应的完整 Stravia 仓库；不能只下载本插件源码。发布工作流按相同布局检出主仓库，`STRAVIA_PLATFORM_REF` 仓库变量可指定主仓库 revision（默认 `main`）；该 revision 必须已包含内嵌图标契约，否则构建会失败。
+
+品牌图标由 `assets/qoder.svg` 编译进 Wasm，无需运行时下载。它使用 [Qoder 官方 SVG](https://qoder.com/favIcon.svg) 的原始路径，去掉底色并转为透明单色，以适配 Stravia 的浅色和深色主题。显示图标需要同时使用更新后的宿主并重新导入插件；归属及授权边界见 [NOTICE](NOTICE)。
+
 依赖 Rust `1.98.1`、`wasm32-wasip2` target，以及可选的 [Task](https://taskfile.dev)。工具链由 `rust-toolchain.toml` 固定。
 
 ```bash
@@ -134,7 +138,7 @@ cargo test --locked --test component_contract -- --ignored --nocapture
 task test
 ```
 
-固定的 Stravia runtime 只接受 WASI `0.2.9` 接口。`Cargo.toml` 对 WASIp2 target 精确约束 `wasip2 = "=1.0.3"`，与 Rust 标准库及宿主 ABI 对齐；不要单独升级到 WASI `0.2.12` 绑定，也不要通过修改宿主白名单或二进制导入名称绕过检查。
+当前 Stravia runtime 接受受限接口集合中的稳定 WASI `0.2.x` 版本，包括 SDK 与 Rust 标准库的混合 patch 版本；接口函数和资源类型仍须匹配。组件契约测试加载实际产物验证这些导入，不修改宿主白名单或二进制导入名称绕过检查。
 
 离线验证分两层：
 
@@ -174,6 +178,11 @@ vendor/             消息编译器与第三方许可证
 ```
 
 ## 变更记录
+
+### Unreleased
+
+- 在 Provider 描述符中内嵌官方来源的透明单色 SVG，不再依赖官网 favicon 获取品牌图标。
+- Stravia 依赖切换为配套本地 checkout；迁移当前 SDK 的可选授权 state 和 channel 描述符字段，保留设备授权语义。
 
 ### 0.1.9
 

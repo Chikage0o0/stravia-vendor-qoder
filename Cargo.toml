@@ -12,10 +12,10 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-stravia-vendor-sdk = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
-stravia-vendor-common = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
-stravia-runtime-contract = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
-stravia-protocol-codec = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
+stravia-vendor-sdk = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-vendor-sdk" }
+stravia-vendor-common = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-vendor-common" }
+stravia-runtime-contract = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-runtime-contract" }
+stravia-protocol-codec = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-protocol-codec" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 semver = { version = "1", features = ["serde"] }
@@ -32,16 +32,12 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 rust_decimal = { version = "1.43", default-features = false, features = ["std"] }
 
-[target.wasm32-wasip2.dependencies]
-# 已固定的宿主只允许 WASI 0.2.9；约束安全熵依赖，避免新绑定升级组件导入 ABI。
-wasip2 = "=1.0.3"
-
 [build-dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
-stravia-vendor-runtime = { git = "https://github.com/Stravia-AI/StraviaPlatform.git", rev = "37458e477ff74bee6700f9faa530f2ab8c97052e" }
+stravia-vendor-runtime = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-vendor-runtime" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 parking_lot = "0.12"
