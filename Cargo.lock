@@ -1770,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "stravia-vendor-qoder"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "aes",
  "async-trait",

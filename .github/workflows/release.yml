@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Stravia-AI/StraviaPlatform
-          ref: ${{ vars.STRAVIA_PLATFORM_REF || 'main' }}
+          ref: ${{ vars.STRAVIA_PLATFORM_REF || 'dbf1db1718fc4f45fca2aed0a03190505cae1892' }}
           path: source/worktrees/StraviaPlatform/merfolk
 
       # rust-toolchain.toml 是工具链版本的唯一来源

@@ -30,7 +30,7 @@
 ## 安装与使用
 
 1. 安装 Stravia。
-2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.1.9.wasm`。维护者发布后，也可从本仓库 Releases 下载对应版本并用 `SHA256SUMS` 校验。
+2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.1.10.wasm`。维护者发布后，也可从本仓库 Releases 下载对应版本并用 `SHA256SUMS` 校验。
 3. 新建 **Qoder** 供应商连接，选择 `cn` 或 `global`。
 4. 发起浏览器授权，打开返回的网址完成账户选择；超过 5 分钟需重新发起。
 5. 授权完成后同步模型，再按 Stravia 的客户端 API 配置接入。
@@ -120,6 +120,8 @@ CLI 的侧路辅助请求可用 `skipCacheWrite=true` 选择倒数第二条消�
 
 依赖 Rust `1.98.1`、`wasm32-wasip2` target，以及可选的 [Task](https://taskfile.dev)。工具链由 `rust-toolchain.toml` 固定。
 
+Stravia SDK 使用本地 path 依赖，须先将宿主仓库检出到 `../worktrees/StraviaPlatform/merfolk`。`0.1.10` 配套宿主提交为 `dbf1db1718fc4f45fca2aed0a03190505cae1892`；发布工作流默认使用同一提交，避免重建旧标签时跟随 `main` 改变依赖。CI 构建前，该提交必须可从 Stravia 宿主远端取得。
+
 ```bash
 # 构建组件
 cargo build --locked --release --lib --target wasm32-wasip2
@@ -179,10 +181,12 @@ vendor/             消息编译器与第三方许可证
 
 ## 变更记录
 
-### Unreleased
+### 0.1.10
 
 - 在 Provider 描述符中内嵌官方来源的透明单色 SVG，不再依赖官网 favicon 获取品牌图标。
 - Stravia 依赖切换为配套本地 checkout；迁移当前 SDK 的可选授权 state 和 channel 描述符字段，保留设备授权语义。
+- 发布工作流默认固定配套宿主提交，保持本地构建与 CI 的 SDK 版本一致。
+- 本地通过 21 项单元测试、5 项真实 Wasm 组件契约；独立加载打包产物确认版本为 `0.1.10`、CN / Global channel 及内嵌 SVG 均可读取。本轮验证未调用真实账号服务。
 
 ### 0.1.9
 
