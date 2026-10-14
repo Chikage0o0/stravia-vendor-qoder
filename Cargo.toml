@@ -12,10 +12,10 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-stravia-vendor-sdk = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-vendor-sdk" }
-stravia-vendor-common = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-vendor-common" }
-stravia-runtime-contract = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-runtime-contract" }
-stravia-protocol-codec = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-protocol-codec" }
+stravia-vendor-sdk = { path = "../StraviaPlatform/backend/crates/stravia-vendor-sdk" }
+stravia-vendor-common = { path = "../StraviaPlatform/backend/crates/stravia-vendor-common" }
+stravia-runtime-contract = { path = "../StraviaPlatform/backend/crates/stravia-runtime-contract" }
+stravia-protocol-codec = { path = "../StraviaPlatform/backend/crates/stravia-protocol-codec" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 semver = { version = "1", features = ["serde"] }
@@ -37,7 +37,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
-stravia-vendor-runtime = { path = "../worktrees/StraviaPlatform/merfolk/backend/crates/stravia-vendor-runtime" }
+stravia-vendor-runtime = { path = "../StraviaPlatform/backend/crates/stravia-vendor-runtime" }
 async-trait = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 parking_lot = "0.12"

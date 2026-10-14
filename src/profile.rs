@@ -40,6 +40,7 @@ pub(crate) fn descriptor() -> VendorDescriptor {
             default_models_source: None,
             consumes_catalog_models: false,
             capabilities: capabilities.clone(),
+            client_header_names: BTreeSet::new(),
             model_capabilities: BTreeSet::new(),
         })
         .collect();

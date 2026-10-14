@@ -17,8 +17,8 @@ use stravia_runtime_contract::protocol::ir::AiErrorKind;
 use stravia_runtime_contract::{CancellationToken, Deadline};
 use stravia_vendor_common::common;
 use stravia_vendor_runtime::{
-    HostFailure, HostHttpResponse, HostServices, HostWebSocket, HttpRequest, LogLevel,
-    OperationScope, RuntimeEvent, VendorRuntime,
+    HostFailure, HostHttpResponse, HostServices, HostWebSocket, HttpRequest, LoadedPlugin,
+    LogLevel, OperationScope, RuntimeError, RuntimeEvent, VendorRuntime,
 };
 use stravia_vendor_sdk::{
     AllowanceRequest, AuthRequest, AuthResponse, AuthStep, DiscoverRequest, ErrorKind,
@@ -134,6 +134,7 @@ impl HostServices for LocalUpstream {
         _: Vec<(String, String)>,
         _: Vec<String>,
         _: Option<String>,
+        _: Option<u64>,
     ) -> Result<Arc<dyn HostWebSocket>, HostFailure> {
         Err(HostFailure::new(
             ErrorKind::Unsupported,
@@ -208,6 +209,22 @@ fn artifact() -> Vec<u8> {
             .join("target/wasm32-wasip2/release/stravia_vendor_qoder.wasm"),
     )
     .expect("build the release wasm32-wasip2 component first")
+}
+
+async fn run(
+    runtime: &VendorRuntime,
+    plugin: &LoadedPlugin,
+    channel: &str,
+    input: OperationInput,
+    scope: OperationScope,
+) -> Result<OperationOutput, RuntimeError> {
+    let (operation, encoded) = input
+        .encode_for_host()
+        .map_err(|_| RuntimeError::InvalidOutput)?;
+    drop(input);
+    runtime
+        .execute(plugin, channel, operation, encoded, scope)
+        .await
 }
 
 fn auth(provider: &ProviderSnapshot, step: AuthStep) -> OperationInput {
@@ -292,7 +309,10 @@ fn verify_signed(request: &HttpRequest, origin: &str, path: &str, uid: &str) -> 
         .expect("native COSY authorization");
     let (payload, signature) = authorization.rsplit_once('.').unwrap();
     let payload_json: Value = serde_json::from_slice(&STANDARD.decode(payload).unwrap()).unwrap();
-    assert_eq!(payload_json["cosyVersion"], "1.1.65");
+    let client_version = header(request, "Cosy-Version");
+    let version = semver::Version::parse(client_version).expect("stable CLI client version");
+    assert!(version.pre.is_empty());
+    assert_eq!(payload_json["cosyVersion"], client_version);
     assert!(
         payload_json["info"]
             .as_str()
@@ -321,7 +341,11 @@ fn verify_signed(request: &HttpRequest, origin: &str, path: &str, uid: &str) -> 
         );
         None
     } else {
-        Some(reference_decode(&request.body))
+        let body = reference_decode(&request.body);
+        if let Some(business) = body.get("business") {
+            assert_eq!(business["version"], client_version);
+        }
+        Some(body)
     }
 }
 
@@ -405,21 +429,21 @@ async fn regional_device_catalog_and_quota_contract() {
     for region in REGIONS {
         let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
-        let start = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(
-                    &provider,
-                    AuthStep::Start {
-                        redirect_uri: String::new(),
-                        state: "synthetic-host-state".into(),
-                    },
-                ),
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        let start = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: "synthetic-host-state".into(),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
         let OperationOutput::Auth(AuthResponse::Authorization { url, .. }) = start else {
             panic!("expected device browser authorization")
         };
@@ -439,44 +463,44 @@ async fn regional_device_catalog_and_quota_contract() {
         );
 
         local.reply(Reply::status(404, json!({})));
-        let pending = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(&provider, AuthStep::Poll),
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        let pending = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(&provider, AuthStep::Poll),
+            local.scope(),
+        )
+        .await
+        .unwrap();
         assert!(matches!(
             pending,
             OperationOutput::Auth(AuthResponse::Pending { .. })
         ));
         local.reply(Reply::json(json!({})));
-        let awaiting_token = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(&provider, AuthStep::Poll),
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        let awaiting_token = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(&provider, AuthStep::Poll),
+            local.scope(),
+        )
+        .await
+        .unwrap();
         assert!(matches!(
             awaiting_token,
             OperationOutput::Auth(AuthResponse::Pending { .. })
         ));
         profile_replies(&local, "synthetic-oauth-one", "synthetic-refresh-one");
         provider.credentials = credentials(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    auth(&provider, AuthStep::Poll),
-                    local.scope(),
-                )
-                .await
-                .unwrap(),
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Poll),
+                local.scope(),
+            )
+            .await
+            .unwrap(),
         );
         assert_eq!(provider.credentials["region"], region.channel);
         assert_eq!(provider.credentials["uid"], "synthetic-user");
@@ -530,15 +554,15 @@ async fn regional_device_catalog_and_quota_contract() {
         local.reply(Reply::json(json!({"device_token":"synthetic-oauth-two","refresh_token":"synthetic-refresh-two","expires_at":"2099-01-01T00:00:00Z","refresh_token_expires_at":"2099-02-01T00:00:00Z"})));
         account_replies(&local);
         provider.credentials = credentials(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    auth(&provider, AuthStep::Refresh),
-                    local.scope(),
-                )
-                .await
-                .unwrap(),
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Refresh),
+                local.scope(),
+            )
+            .await
+            .unwrap(),
         );
         assert_eq!(provider.credentials["access_token"], "synthetic-oauth-two");
         assert_eq!(
@@ -559,15 +583,15 @@ async fn regional_device_catalog_and_quota_contract() {
         local.reply(Reply::json(
             json!({"id":"another-account","uid":"synthetic-user"}),
         ));
-        let changed_account = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(&provider, AuthStep::Refresh),
-                local.scope(),
-            )
-            .await
-            .unwrap_err();
+        let changed_account = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(&provider, AuthStep::Refresh),
+            local.scope(),
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(
             changed_account,
             stravia_vendor_runtime::RuntimeError::Plugin {
@@ -585,18 +609,18 @@ async fn regional_device_catalog_and_quota_contract() {
             .options
             .insert("model_ids".into(), json!("synthetic-model"));
         local.reply(Reply::encoded(catalog()));
-        let discovered = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                OperationInput::Discover {
-                    provider: provider.clone(),
-                    request: DiscoverRequest::default(),
-                },
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        let discovered = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            OperationInput::Discover {
+                provider: provider.clone(),
+                request: DiscoverRequest::default(),
+            },
+            local.scope(),
+        )
+        .await
+        .unwrap();
         let OperationOutput::Discover(discovered) = discovered else {
             panic!("expected models")
         };
@@ -621,18 +645,18 @@ async fn regional_device_catalog_and_quota_contract() {
         );
 
         local.reply(Reply::json(json!({"user_id":"synthetic-user","user_type":"PRO","user_quota":{"total":100,"used":25,"remaining":75,"unit":"credits"}})));
-        let quota = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                OperationInput::Allowance {
-                    provider: provider.clone(),
-                    request: AllowanceRequest::default(),
-                },
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        let quota = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            OperationInput::Allowance {
+                provider: provider.clone(),
+                request: AllowanceRequest::default(),
+            },
+            local.scope(),
+        )
+        .await
+        .unwrap();
         let OperationOutput::Allowance(quota) = quota else {
             panic!("expected quota")
         };
@@ -661,18 +685,18 @@ async fn regional_device_catalog_and_quota_contract() {
             );
         }
         local.reply(Reply::json(json!({"user_id":"synthetic-user","user_type":"PRO","user_quota":{"used":9,"unit":"credits"}})));
-        let partial = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                OperationInput::Allowance {
-                    provider: provider.clone(),
-                    request: AllowanceRequest::default(),
-                },
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        let partial = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            OperationInput::Allowance {
+                provider: provider.clone(),
+                request: AllowanceRequest::default(),
+            },
+            local.scope(),
+        )
+        .await
+        .unwrap();
         let OperationOutput::Allowance(partial) = partial else {
             panic!("expected partial quota")
         };
@@ -683,18 +707,18 @@ async fn regional_device_catalog_and_quota_contract() {
         );
         local.reply(Reply::json(json!({})));
         assert!(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    OperationInput::Allowance {
-                        provider: provider.clone(),
-                        request: AllowanceRequest::default()
-                    },
-                    local.scope()
-                )
-                .await
-                .is_err(),
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                OperationInput::Allowance {
+                    provider: provider.clone(),
+                    request: AllowanceRequest::default()
+                },
+                local.scope()
+            )
+            .await
+            .is_err(),
             "unknown quota must not become a fabricated zero balance"
         );
 
@@ -709,33 +733,33 @@ async fn regional_device_catalog_and_quota_contract() {
             }),
         );
         assert!(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    OperationInput::Discover {
-                        provider: crossed,
-                        request: DiscoverRequest::default()
-                    },
-                    local.scope()
-                )
-                .await
-                .is_err()
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                OperationInput::Discover {
+                    provider: crossed,
+                    request: DiscoverRequest::default()
+                },
+                local.scope()
+            )
+            .await
+            .is_err()
         );
         assert_eq!(
             local.requests.lock().len(),
             before,
             "cross-region credentials must fail before outbound HTTP"
         );
-        let revoked = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(&provider, AuthStep::Revoke),
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        let revoked = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(&provider, AuthStep::Revoke),
+            local.scope(),
+        )
+        .await
+        .unwrap();
         assert!(matches!(
             revoked,
             OperationOutput::Auth(AuthResponse::Revoked)
@@ -748,81 +772,81 @@ async fn regional_device_catalog_and_quota_contract() {
         // Apply the SDK's Revoked response as the host does.
         provider.credentials.clear();
         assert!(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    OperationInput::Discover {
-                        provider: provider.clone(),
-                        request: DiscoverRequest::default()
-                    },
-                    local.scope()
-                )
-                .await
-                .is_err(),
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                OperationInput::Discover {
+                    provider: provider.clone(),
+                    request: DiscoverRequest::default()
+                },
+                local.scope()
+            )
+            .await
+            .is_err(),
             "a revoked account cannot make authenticated requests"
         );
         assert_eq!(local.requests.lock().len(), before);
-        runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(
-                    &provider,
-                    AuthStep::Start {
-                        redirect_uri: String::new(),
-                        state: "synthetic-expiring-state".into(),
-                    },
-                ),
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: "synthetic-expiring-state".into(),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
         let mut expired: Value =
             serde_json::from_slice(local.state.lock().as_ref().unwrap()).unwrap();
         expired["device_login"]["deadline"] = json!(0);
         *local.state.lock() = Some(serde_json::to_vec(&expired).unwrap());
         assert!(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    auth(&provider, AuthStep::Poll),
-                    local.scope()
-                )
-                .await
-                .is_err(),
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Poll),
+                local.scope()
+            )
+            .await
+            .is_err(),
             "expired device flow must not poll upstream"
         );
         assert_eq!(local.requests.lock().len(), before);
-        runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(
-                    &provider,
-                    AuthStep::Start {
-                        redirect_uri: String::new(),
-                        state: "synthetic-denied-state".into(),
-                    },
-                ),
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: "synthetic-denied-state".into(),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
         local.reply(Reply::status(
             401,
             json!({"error":"synthetic-secret-oauth"}),
         ));
-        let denied = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(&provider, AuthStep::Poll),
-                local.scope(),
-            )
-            .await
-            .unwrap_err();
+        let denied = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(&provider, AuthStep::Poll),
+            local.scope(),
+        )
+        .await
+        .unwrap_err();
         assert!(!format!("{denied:?}").contains("synthetic-secret-oauth"));
         assert!(local.replies.lock().is_empty());
         println!(
@@ -870,36 +894,36 @@ async fn official_cli_parallel_history_contract() {
                 }),
             )]),
         });
-        runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(
-                    &provider,
-                    AuthStep::Start {
-                        redirect_uri: String::new(),
-                        state: "synthetic-official-state".into(),
-                    },
-                ),
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: "synthetic-official-state".into(),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
         profile_replies(
             &local,
             "synthetic-official-token",
             "synthetic-official-refresh",
         );
         provider.credentials = credentials(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    auth(&provider, AuthStep::Poll),
-                    local.scope(),
-                )
-                .await
-                .unwrap(),
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Poll),
+                local.scope(),
+            )
+            .await
+            .unwrap(),
         );
         let mut input = ProtocolTransform::global().bind(endpoint, endpoint).unwrap().decode_request(json!({
             "model":"client-route","stream":true,"max_tokens":16384,"system":"synthetic system",
@@ -937,7 +961,7 @@ async fn official_cli_parallel_history_contract() {
                 cache_control: None,
             },
             ContentBlock::Text {
-                text: "synthetic continuation".into(),
+                text: Arc::new("synthetic continuation".into()),
                 cache_control: None,
             },
         ]);
@@ -946,18 +970,18 @@ async fn official_cli_parallel_history_contract() {
         ) + "event: finish\ndata: {}\n\n";
         local.reply(Reply::stream(&completed, 7));
         let started_at = chrono::Utc::now().timestamp_millis();
-        let result = runtime
-            .execute(
-                &plugin,
-                region.channel,
-                OperationInput::Infer {
-                    provider: provider.clone(),
-                    request: input,
-                },
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        let result = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            OperationInput::Infer {
+                provider: provider.clone(),
+                request: input,
+            },
+            local.scope(),
+        )
+        .await
+        .unwrap();
         assert_eq!(
             response_wire(result)["choices"][0]["message"]["content"],
             "accepted"
@@ -982,6 +1006,8 @@ async fn official_cli_parallel_history_contract() {
         let business_id = uuid::Uuid::parse_str(business["id"].as_str().unwrap()).unwrap();
         assert_eq!(business_id.get_version_num(), 4);
         assert_ne!(business["id"], actual["request_id"]);
+        // The fixture records historical CLI wire behavior, not today's client identity.
+        oracle["business"]["version"] = business["version"].clone();
         oracle["business"]["id"] = business["id"].clone();
         oracle["business"]["begin_at"] = business["begin_at"].clone();
         oracle["session_id"] = json!(NATIVE_SESSION_ID);
@@ -1062,36 +1088,36 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
     for region in REGIONS {
         let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
-        runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(
-                    &provider,
-                    AuthStep::Start {
-                        redirect_uri: String::new(),
-                        state: "synthetic-whitelist-state".into(),
-                    },
-                ),
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: "synthetic-whitelist-state".into(),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
         profile_replies(
             &local,
             "synthetic-whitelist-token",
             "synthetic-whitelist-refresh",
         );
         provider.credentials = credentials(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    auth(&provider, AuthStep::Poll),
-                    local.scope(),
-                )
-                .await
-                .unwrap(),
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Poll),
+                local.scope(),
+            )
+            .await
+            .unwrap(),
         );
         provider.client_headers = [
             "authorization",
@@ -1131,7 +1157,7 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
         input.items[0].content =
             stravia_runtime_contract::protocol::ir::MessageContent::Blocks(vec![
                 stravia_runtime_contract::protocol::ir::ContentBlock::Text {
-                    text: "你好".into(),
+                    text: Arc::new("你好".into()),
                     cache_control: Some(
                         serde_json::from_value(
                             json!({"ttl":"ephemeral1h","breakpoint_priority":1}),
@@ -1156,18 +1182,18 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
         })) + "event: finish\ndata: {}\n\n";
         local.reply(Reply::stream(&completed, 7));
         let wire = response_wire(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    OperationInput::Infer {
-                        provider: provider.clone(),
-                        request: input,
-                    },
-                    local.scope(),
-                )
-                .await
-                .unwrap(),
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                OperationInput::Infer {
+                    provider: provider.clone(),
+                    request: input,
+                },
+                local.scope(),
+            )
+            .await
+            .unwrap(),
         );
         assert_eq!(wire["choices"][0]["message"]["content"], "accepted");
         assert_eq!(wire["choices"][0]["finish_reason"], "stop");
@@ -1268,35 +1294,35 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
             json!({"is_vl":true,"source":"system"}),
         )]),
     });
-    runtime
-        .execute(
+    run(
+        &runtime,
+        &plugin,
+        region.channel,
+        auth(
+            &provider,
+            AuthStep::Start {
+                redirect_uri: String::new(),
+                state: "synthetic-cache-state".into(),
+            },
+        ),
+        local.scope(),
+    )
+    .await
+    .unwrap();
+    profile_replies(&local, "synthetic-cache-token", "synthetic-cache-refresh");
+    provider.credentials = credentials(
+        run(
+            &runtime,
             &plugin,
             region.channel,
-            auth(
-                &provider,
-                AuthStep::Start {
-                    redirect_uri: String::new(),
-                    state: "synthetic-cache-state".into(),
-                },
-            ),
+            auth(&provider, AuthStep::Poll),
             local.scope(),
         )
         .await
-        .unwrap();
-    profile_replies(&local, "synthetic-cache-token", "synthetic-cache-refresh");
-    provider.credentials = credentials(
-        runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(&provider, AuthStep::Poll),
-                local.scope(),
-            )
-            .await
-            .unwrap(),
+        .unwrap(),
     );
     let text = |value: &str| ContentBlock::Text {
-        text: value.into(),
+        text: Arc::new(value.into()),
         cache_control: None,
     };
     let tool_use = || ContentBlock::ToolUse {
@@ -1399,18 +1425,18 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
         })) + "event: finish\ndata: {}\n\n";
         local.reply(Reply::stream(&completed, 7));
         let wire = response_wire(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    OperationInput::Infer {
-                        provider: provider.clone(),
-                        request: input,
-                    },
-                    local.scope(),
-                )
-                .await
-                .unwrap(),
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                OperationInput::Infer {
+                    provider: provider.clone(),
+                    request: input,
+                },
+                local.scope(),
+            )
+            .await
+            .unwrap(),
         );
         assert_eq!(wire["choices"][0]["message"]["content"], "accepted");
         let requests = local.requests.lock();
@@ -1453,46 +1479,46 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
     for region in REGIONS {
         let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
-        runtime
-            .execute(
-                &plugin,
-                region.channel,
-                auth(
-                    &provider,
-                    AuthStep::Start {
-                        redirect_uri: String::new(),
-                        state: "synthetic-stream-state".into(),
-                    },
-                ),
-                local.scope(),
-            )
-            .await
-            .unwrap();
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: "synthetic-stream-state".into(),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
         profile_replies(&local, "synthetic-secret-oauth", "synthetic-secret-refresh");
         provider.credentials = credentials(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    auth(&provider, AuthStep::Poll),
-                    local.scope(),
-                )
-                .await
-                .unwrap(),
-        );
-        local.reply(Reply::encoded(catalog()));
-        let discovered = runtime
-            .execute(
+            run(
+                &runtime,
                 &plugin,
                 region.channel,
-                OperationInput::Discover {
-                    provider: provider.clone(),
-                    request: DiscoverRequest::default(),
-                },
+                auth(&provider, AuthStep::Poll),
                 local.scope(),
             )
             .await
-            .unwrap();
+            .unwrap(),
+        );
+        local.reply(Reply::encoded(catalog()));
+        let discovered = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            OperationInput::Discover {
+                provider: provider.clone(),
+                request: DiscoverRequest::default(),
+            },
+            local.scope(),
+        )
+        .await
+        .unwrap();
         let OperationOutput::Discover(discovered) = discovered else {
             panic!("expected models")
         };
@@ -1524,23 +1550,23 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
             input.items[0].content =
                 stravia_runtime_contract::protocol::ir::MessageContent::Blocks(vec![
                     stravia_runtime_contract::protocol::ir::ContentBlock::Text {
-                        text: "你好".into(),
+                        text: Arc::new("你好".into()),
                         cache_control: None,
                     },
                 ]);
             let wire = response_wire(
-                runtime
-                    .execute(
-                        &plugin,
-                        region.channel,
-                        OperationInput::Infer {
-                            provider: provider.clone(),
-                            request: input,
-                        },
-                        local.scope(),
-                    )
-                    .await
-                    .unwrap(),
+                run(
+                    &runtime,
+                    &plugin,
+                    region.channel,
+                    OperationInput::Infer {
+                        provider: provider.clone(),
+                        request: input,
+                    },
+                    local.scope(),
+                )
+                .await
+                .unwrap(),
             );
             assert_eq!(wire["choices"][0]["message"]["content"], "你好");
             assert_eq!(wire["choices"][0]["message"]["reasoning_content"], "想");
@@ -1611,18 +1637,18 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
         local.events.lock().clear();
         local.reply(Reply::stream(&stream(false), 3));
         assert!(
-            runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    OperationInput::Infer {
-                        provider: provider.clone(),
-                        request: request()
-                    },
-                    local.scope()
-                )
-                .await
-                .is_err()
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                OperationInput::Infer {
+                    provider: provider.clone(),
+                    request: request()
+                },
+                local.scope()
+            )
+            .await
+            .is_err()
         );
         assert!(
             !local
@@ -1639,18 +1665,18 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
                 json!({"headers":{},"body":json!({"error":{"message":"synthetic-secret-oauth synthetic-secret-refresh","code":"unauthorized"}}).to_string(),"statusCodeValue":status,"statusCode":if status == 200 { "OK" } else { "UNAUTHORIZED" }})
             );
             local.reply(Reply::stream(&error_body, 2));
-            let error = runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    OperationInput::Infer {
-                        provider: provider.clone(),
-                        request: request(),
-                    },
-                    local.scope(),
-                )
-                .await
-                .unwrap_err();
+            let error = run(
+                &runtime,
+                &plugin,
+                region.channel,
+                OperationInput::Infer {
+                    provider: provider.clone(),
+                    request: request(),
+                },
+                local.scope(),
+            )
+            .await
+            .unwrap_err();
             let diagnostic = format!(
                 "{error:?} {}",
                 error.diagnostic_message().unwrap_or_default()
@@ -1673,18 +1699,18 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
                 json!({"headers":{},"body":json!({"code":code.to_string(),"retryAfterMs":1500,"message":"synthetic-secret-oauth"}).to_string(),"statusCodeValue":500,"statusCode":"ERROR"})
             );
             local.reply(Reply::stream(&business_error, 2));
-            let error = runtime
-                .execute(
-                    &plugin,
-                    region.channel,
-                    OperationInput::Infer {
-                        provider: provider.clone(),
-                        request: request(),
-                    },
-                    local.scope(),
-                )
-                .await
-                .unwrap_err();
+            let error = run(
+                &runtime,
+                &plugin,
+                region.channel,
+                OperationInput::Infer {
+                    provider: provider.clone(),
+                    request: request(),
+                },
+                local.scope(),
+            )
+            .await
+            .unwrap_err();
             match code {
                 105 => assert_eq!(
                     error.model_error_kind(),

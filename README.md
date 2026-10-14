@@ -114,13 +114,13 @@ CLI 的侧路辅助请求可用 `skipCacheWrite=true` 选择倒数第二条消�
 
 ## 构建与验证
 
-当前源码通过相对路径使用支持 `ProviderDescriptor.icon_svg` 的 Stravia checkout。构建前保持如下目录关系：插件目录旁的 `worktrees/StraviaPlatform/merfolk/` 为对应的完整 Stravia 仓库；不能只下载本插件源码。发布工作流按相同布局检出主仓库，`STRAVIA_PLATFORM_REF` 仓库变量可指定主仓库 revision（默认 `main`）；该 revision 必须已包含内嵌图标契约，否则构建会失败。
+当前源码通过相对路径使用插件目录旁的完整 `StraviaPlatform/` checkout，五个 Stravia 依赖统一指向 `../StraviaPlatform/backend/crates/...`；不能只下载本插件源码。发布工作流按相同布局检出到 `source/StraviaPlatform`，`STRAVIA_PLATFORM_REF` 仓库变量可指定主仓库 revision。覆盖该变量前须核对 SDK、protocol-codec 与 vendor-runtime 契约，并通过构建及真实组件验证。
 
 品牌图标由 `assets/qoder.svg` 编译进 Wasm，无需运行时下载。它使用 [Qoder 官方 SVG](https://qoder.com/favIcon.svg) 的原始路径，去掉底色并转为透明单色，以适配 Stravia 的浅色和深色主题。显示图标需要同时使用更新后的宿主并重新导入插件；归属及授权边界见 [NOTICE](NOTICE)。
 
 依赖 Rust `1.98.1`、`wasm32-wasip2` target，以及可选的 [Task](https://taskfile.dev)。工具链由 `rust-toolchain.toml` 固定。
 
-Stravia SDK 使用本地 path 依赖，须先将宿主仓库检出到 `../worktrees/StraviaPlatform/merfolk`。`0.1.10` 配套宿主提交为 `dbf1db1718fc4f45fca2aed0a03190505cae1892`；发布工作流默认使用同一提交，避免重建旧标签时跟随 `main` 改变依赖。CI 构建前，该提交必须可从 Stravia 宿主远端取得。
+当前源码与发布工作流固定配套 dev 提交 `b32268ab77a02349360fdce0c76805e9d29deebd`，SDK 版本为 `0.4.0`。CI 构建前，该提交必须可从 Stravia 宿主远端取得；历史标签仍使用各自提交中固定的依赖，不跟随分支自动改变。
 
 ```bash
 # 构建组件
@@ -153,6 +153,8 @@ task test
 
 ## 协议来源与维护
 
+当前客户端身份使用官方 [`@qoder-ai/qodercli` latest](https://registry.npmjs.org/@qoder-ai/qodercli/latest) 核实的正式版 `1.1.70`；[对应发布包](https://registry.npmjs.org/@qoder-ai/qodercli/-/qodercli-1.1.70.tgz) 的身份构造保持现有原生签名形态。OpenAPI User-Agent、`Cosy-Version`、签名 payload 与推理业务版本同步使用该值；认证与签名的历史校验向量仍保留其原始版本。
+
 本实现以官方 [`@qoder-ai/qodercli@1.1.65` 发布包](https://registry.npmjs.org/@qoder-ai/qodercli/-/qodercli-1.1.65.tgz) 的静态源码和全合成离线互操作结果为依据。生产组件不分发、嵌入或执行其认证 WASM。
 
 研究对照包括 [qodercli2api](https://github.com/Liki4/qodercli2api)、[qoder-proxy](https://github.com/avaritiachaos/qoder-proxy) 和 [qoder-cli-api](https://github.com/onehub-work/qoder-cli-api)。社区实现与官方当前版本的差异需分别核实，本仓库未直接复制 AGPL 实现源码。
@@ -180,6 +182,12 @@ vendor/             消息编译器与第三方许可证
 ```
 
 ## 变更记录
+
+### Unreleased
+
+- 依赖升级至 Stravia dev SDK `0.4.0`，同步本地与 CI checkout 布局；组件契约迁移至 owned canonical 文本、显式编码执行接口与 WebSocket reuse-age 参数。额外客户端请求头声明保持为空，不扩大权限。
+- 客户端身份更新为 Qoder CLI `1.1.70`，同步所有原生身份与签名字段；保留官方 `1.1.65` 的独立密码学向量，组件契约检查签名、请求头与业务版本的一致性，不固定发行版本默认值。
+- 使用锁定 Rust 工具链通过 21 项单元测试与 5 项真实 Wasm 组件契约；独立离线程序加载组件并完成 CN / Global 授权启动。本轮未调用真实账号服务；使用新版须重新构建并导入插件。
 
 ### 0.1.10
 

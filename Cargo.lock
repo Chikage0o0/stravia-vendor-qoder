@@ -1725,9 +1725,10 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stravia-protocol-codec"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
+ "base64",
  "chrono",
  "http",
  "inventory",
@@ -1740,7 +1741,7 @@ dependencies = [
 
 [[package]]
 name = "stravia-runtime-contract"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1758,7 +1759,7 @@ dependencies = [
 
 [[package]]
 name = "stravia-vendor-common"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "http",
@@ -1799,7 +1800,7 @@ dependencies = [
 
 [[package]]
 name = "stravia-vendor-runtime"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -1814,7 +1815,7 @@ dependencies = [
 
 [[package]]
 name = "stravia-vendor-sdk"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "base64",
  "semver",

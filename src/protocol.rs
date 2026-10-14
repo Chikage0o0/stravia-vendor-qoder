@@ -15,7 +15,7 @@ use zeroize::Zeroizing;
 
 use crate::Region;
 
-pub(crate) const CLI_VERSION: &str = "1.1.65";
+pub(crate) const CLI_VERSION: &str = "1.1.70";
 const MACHINE_OS_VALUES: [&str; 6] = [
     "x86_64_win32",
     "aarch64_win32",
@@ -408,6 +408,7 @@ pub(crate) fn prepare(
     prepare_at(
         region,
         identity,
+        CLI_VERSION,
         method,
         path,
         raw_body,
@@ -422,6 +423,7 @@ pub(crate) fn prepare(
 fn prepare_at(
     region: Region,
     identity: &Identity,
+    client_version: &str,
     method: &str,
     path: &str,
     raw_body: &[u8],
@@ -475,7 +477,7 @@ fn prepare_at(
             version: "v1",
             request_id: uuid(random),
             info: &identity.encrypt_user_info,
-            cosy_version: CLI_VERSION,
+            cosy_version: client_version,
             ide_version: "",
         })
         .map_err(|_| failure("Qoder signing payload serialization failed"))?,
@@ -523,7 +525,7 @@ fn prepare_at(
         ("Cosy-MachineId".into(), identity.machine_id.clone()),
         ("Cosy-Scene".into(), "assistant".into()),
         ("Cosy-User".into(), identity.uid.clone()),
-        ("Cosy-Version".into(), CLI_VERSION.into()),
+        ("Cosy-Version".into(), client_version.into()),
         ("Login-Version".into(), "v2".into()),
     ];
     if !identity.organization_id.is_empty() {
@@ -541,7 +543,7 @@ fn prepare_at(
     if inference {
         headers.push(("Cache-Control".into(), "no-cache".into()));
         headers.push(("Connection".into(), "keep-alive".into()));
-        // 官方 1.1.65 JS 仅在真实 UMID 可用时保留机器令牌及类型；
+        // 官方 CLI JS 仅在真实 UMID 可用时保留机器令牌及类型；
         // 原生 HTTP 不伪造 UMID，因此省略 WASM 默认生成的这两个头。
         if let Some(key) = model_key.filter(|key| !key.is_empty()) {
             headers.push(("X-Model-Key".into(), key.to_owned()));
@@ -689,6 +691,7 @@ mod tests {
         let model = prepare_at(
             Region::Global,
             &identity(),
+            "1.1.65",
             "GET",
             "/api/v2/model/list?Encode=1",
             &[],
@@ -701,6 +704,7 @@ mod tests {
         let infer = prepare_at(
             Region::Global,
             &identity(),
+            "1.1.65",
             "POST",
             &format!("{INFER_PATH}?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1"),
             b"{}",
