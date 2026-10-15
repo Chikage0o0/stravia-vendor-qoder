@@ -1153,7 +1153,6 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
         input.response_format =
             Some(serde_json::from_value(json!({"type":"json_object"})).unwrap());
         input.parallel_tool_calls = Some(false);
-        input.disable_parallel_tool_calls = Some(true);
         input.items[0].content =
             stravia_runtime_contract::protocol::ir::MessageContent::Blocks(vec![
                 stravia_runtime_contract::protocol::ir::ContentBlock::Text {
@@ -1169,10 +1168,6 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
         let tool = &mut input.tools.as_mut().unwrap()[0];
         tool.parameters = schema.clone();
         tool.strict = Some(true);
-        tool.cache_control = Some(
-            serde_json::from_value(json!({"ttl":"ephemeral1h","breakpoint_priority":1})).unwrap(),
-        );
-        tool.meta = Some(json!({"non_cli_tool_metadata":"ignored"}));
         let completed = envelope(json!({
             "id":"synthetic-whitelist-response","model":"synthetic-model",
             "choices":[{"index":0,"delta":{"content":"accepted"},"finish_reason":"stop"}]
@@ -1468,6 +1463,105 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
                 "{label}: unexpected {key}"
             );
         }
+    }
+}
+
+#[tokio::test]
+#[ignore = "build the release wasm32-wasip2 component first"]
+async fn responses_items_preserve_native_assistant_turns() {
+    let runtime = VendorRuntime::new().unwrap();
+    let plugin = runtime.load(&artifact()).await.unwrap();
+    let endpoint = common::endpoint("open-responses").unwrap();
+    // 官方 1.1.65 UWc 对同一 assistant 的 thinking/text/并行 tool_use 的独立执行结果。
+    let expected: Value = serde_json::from_str(include_str!(
+        "fixtures/qoder_cli_1_1_65_reasoning_tools.json"
+    ))
+    .unwrap();
+    for region in REGIONS {
+        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let mut provider = snapshot(region);
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: "synthetic-turn-state".into(),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
+        profile_replies(&local, "synthetic-turn-token", "synthetic-turn-refresh");
+        provider.credentials = credentials(
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Poll),
+                local.scope(),
+            )
+            .await
+            .unwrap(),
+        );
+        let input = ProtocolTransform::global()
+            .bind(endpoint, endpoint)
+            .unwrap()
+            .decode_request(json!({
+                "model":"client-route","stream":true,
+                "input":[
+                    {"role":"user","content":"Read both files."},
+                    {"type":"reasoning","summary":[{"type":"summary_text","text":"Need both files."}]},
+                    {"type":"message","role":"assistant","content":[{"type":"output_text","text":"Checking."}]},
+                    {"type":"function_call","call_id":"call_a","name":"echo","arguments":"{\"value\":\"alpha\"}"},
+                    {"type":"function_call","call_id":"call_b","name":"echo","arguments":"{\"value\":\"beta\"}"},
+                    {"type":"function_call_output","call_id":"call_b","output":"beta"},
+                    {"type":"function_call_output","call_id":"call_a","output":"alpha"},
+                    {"role":"user","content":"Continue."},
+                    {"type":"message","role":"assistant","content":[{"type":"output_text","text":"Next turn."}]}
+                ]
+            }))
+            .unwrap();
+        let completed = envelope(json!({
+            "choices":[{"index":0,"delta":{"content":"alpha/beta"},"finish_reason":"stop"}]
+        })) + "event: finish\ndata: {}\n\n";
+        local.reply(Reply::stream(&completed, 7));
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            OperationInput::Infer {
+                provider,
+                request: input,
+            },
+            local.scope(),
+        )
+        .await
+        .unwrap();
+        let requests = local.requests.lock();
+        let body = verify_signed(
+            requests.last().unwrap(),
+            region.infer,
+            "/api/v2/service/pro/sse/agent_chat_generation",
+            "synthetic-user",
+        )
+        .unwrap();
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(
+            messages
+                .iter()
+                .map(|row| row["role"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["user", "assistant", "tool", "tool", "user", "assistant"],
+            "canonical item boundaries must not split a native assistant turn"
+        );
+        assert_eq!(messages[1], expected);
+        assert_eq!(messages[2]["tool_call_id"], "call_b");
+        assert_eq!(messages[3]["tool_call_id"], "call_a");
+        assert_eq!(messages[5]["content"], "Next turn.");
     }
 }
 

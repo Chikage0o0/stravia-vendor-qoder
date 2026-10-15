@@ -1,0 +1,40 @@
+{
+  "role": "assistant",
+  "content": "Checking.",
+  "contents": [
+    {
+      "type": "text",
+      "text": "Checking."
+    }
+  ],
+  "reasoning_content": "Need both files.",
+  "reasoning_item": {
+    "type": "reasoning",
+    "summary": [
+      {
+        "text": "Need both files.",
+        "type": "summary_text"
+      }
+    ]
+  },
+  "tool_calls": [
+    {
+      "id": "call_a",
+      "type": "function",
+      "index": 0,
+      "function": {
+        "name": "echo",
+        "arguments": "{\"value\":\"alpha\"}"
+      }
+    },
+    {
+      "id": "call_b",
+      "type": "function",
+      "index": 1,
+      "function": {
+        "name": "echo",
+        "arguments": "{\"value\":\"beta\"}"
+      }
+    }
+  ]
+}

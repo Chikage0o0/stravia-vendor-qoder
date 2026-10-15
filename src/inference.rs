@@ -6,8 +6,7 @@ use std::time::Duration;
 use stravia_protocol_codec::accumulator::StreamResponseAccumulator;
 use stravia_protocol_codec::transform::{ProtocolTransform, StreamDecodeStage};
 use stravia_runtime_contract::protocol::ir::{
-    AiRequest, ContentBlock, MediaSource, MessageContent, ProtocolExt, Role, ToolChoice,
-    ToolResultContentKind,
+    AiRequest, ContentBlock, MediaSource, MessageContent, Role, ToolChoice, ToolResultContentKind,
 };
 use stravia_vendor_common::common;
 use stravia_vendor_sdk::{
@@ -157,64 +156,68 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
             "reasoning_effort".into(),
             json!(if effort == "off" { "none" } else { effort }),
         );
-    } else if let Some(effort) = &request.reasoning.effort {
-        let effort = serde_json::to_value(effort).map_err(|_| unsupported_request())?;
-        if effort.is_string() {
-            parameters.insert("reasoning_effort".into(), effort);
-        }
     }
     if let Some(budget) = request.reasoning.budget_tokens {
         parameters.insert("reasoning_budget_tokens".into(), json!(budget));
         parameters.insert("enable_thinking".into(), json!(budget > 0));
-    } else if request.reasoning.enabled {
+    } else if request.reasoning.is_enabled() {
         parameters.insert("enable_thinking".into(), json!(true));
+    } else if request.reasoning.mode.as_deref() == Some("disabled") {
+        parameters.insert("enable_thinking".into(), json!(false));
     }
     if let Some(choice) = &request.tool_choice {
         let value = match choice {
-            ToolChoice::Auto => json!("auto"),
-            ToolChoice::None => json!("none"),
-            ToolChoice::Required => json!("required"),
-            ToolChoice::Named { name } => json!({"type":"function","function":{"name":name}}),
-            ToolChoice::Raw(value) => value.clone(),
+            ToolChoice::Auto => Some(json!("auto")),
+            ToolChoice::None => Some(json!("none")),
+            ToolChoice::Required => Some(json!("required")),
+            ToolChoice::Named { name } => Some(json!({"type":"function","function":{"name":name}})),
+            ToolChoice::Allowed { .. } | ToolChoice::Native(_) => None,
         };
-        parameters.insert("tool_choice".into(), value);
+        if let Some(value) = value {
+            parameters.insert("tool_choice".into(), value);
+        }
     }
-    if let Some(ProtocolExt::Anthropic(ext)) = &request.ext
-        && let Some(top_k) = ext.top_k
-    {
+    if let Some(top_k) = request.parameters.top_k {
         parameters.insert("top_k".into(), json!(top_k));
     }
-    // DlA/Fgi 在拆分工具结果之前选择最后一条历史的断点；全为排除块时不退到前一条。
-    let cache_breakpoint = request
+    let cache_tail = request
         .items
         .iter()
-        .enumerate()
-        .rev()
-        .find(|(_, item)| matches!(item.role, Role::User | Role::Assistant | Role::Tool))
-        .and_then(|(message_index, item)| {
-            if item.role == Role::Tool {
-                return None;
-            }
-            let MessageContent::Blocks(blocks) = &item.content else {
-                return None;
-            };
-            blocks
-                .iter()
-                .rposition(|block| {
-                    !matches!(
-                        block,
-                        ContentBlock::Thinking { .. }
-                            | ContentBlock::Reasoning { .. }
-                            | ContentBlock::RedactedThinking { .. }
-                            | ContentBlock::ToolUse { .. }
-                            | ContentBlock::ToolResult { .. }
-                    )
-                })
-                .map(|block_index| (message_index, block_index))
-        });
+        .rposition(|item| matches!(item.role, Role::User | Role::Assistant | Role::Tool));
     let mut messages = Vec::with_capacity(request.items.len());
-    for (message_index, item) in request.items.iter().enumerate() {
-        let role = match item.role {
+    let mut message_index = 0;
+    // Responses 的 reasoning/message/function_call 是内容项，不是独立的 assistant 轮。
+    // 先恢复一轮的内容，再按官方 UWc 投影，避免发出孤立思考和拆开的并行调用。
+    for group in request
+        .items
+        .chunk_by(|left, right| left.role == Role::Assistant && right.role == Role::Assistant)
+    {
+        let first = &group[0];
+        // Fgi 在一条原生消息内回找缓存块，不能跨 user/tool 边界回退。
+        let cache_breakpoint = (cache_tail == Some(message_index + group.len() - 1)
+            && first.role != Role::Tool)
+            .then(|| {
+                group.iter().enumerate().rev().find_map(|(offset, item)| {
+                    let MessageContent::Blocks(blocks) = &item.content else {
+                        return None;
+                    };
+                    blocks
+                        .iter()
+                        .rposition(|block| {
+                            !matches!(
+                                block,
+                                ContentBlock::Thinking { .. }
+                                    | ContentBlock::Reasoning { .. }
+                                    | ContentBlock::RedactedThinking { .. }
+                                    | ContentBlock::ToolUse { .. }
+                                    | ContentBlock::ToolResult { .. }
+                            )
+                        })
+                        .map(|block_index| (message_index + offset, block_index))
+                })
+            })
+            .flatten();
+        let role = match first.role {
             Role::System => "system",
             Role::Developer => "developer",
             Role::User => "user",
@@ -226,147 +229,162 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
         let mut contents = Vec::new();
         let mut calls = Vec::new();
         let mut results = Vec::new();
-        match &item.content {
-            MessageContent::Text(value) => {
-                row["content"] = json!(value);
-            }
-            MessageContent::Blocks(blocks) => {
-                for (block_index, block) in blocks.iter().enumerate() {
-                    match block {
-                        ContentBlock::Text {
-                            text: value,
-                            cache_control,
-                        } => {
-                            if value.is_empty() {
-                                continue;
+        let mut reasoning_text = String::new();
+        for (offset, item) in group.iter().enumerate() {
+            match &item.content {
+                MessageContent::Text(value) => {
+                    text.push(value.as_str());
+                    if first.role == Role::Assistant && group.len() > 1 && !value.is_empty() {
+                        contents.push(json!({"type":"text","text":value}));
+                    }
+                }
+                MessageContent::Blocks(blocks) => {
+                    for (block_index, block) in blocks.iter().enumerate() {
+                        match block {
+                            ContentBlock::Text {
+                                text: value,
+                                cache_control,
+                            } => {
+                                if value.is_empty() {
+                                    continue;
+                                }
+                                text.push(value.as_str());
+                                let mut part = json!({"type":"text","text":value});
+                                if cache_control.is_some()
+                                    || cache_breakpoint
+                                        == Some((message_index + offset, block_index))
+                                {
+                                    // canonical 的 ttl/断点优先级不是 CLI wire 字段。
+                                    part["cache_control"] = json!({"type":"ephemeral"});
+                                }
+                                contents.push(part);
                             }
-                            text.push(value.as_str());
-                            let mut part = json!({"type":"text","text":value});
-                            if cache_control.is_some()
-                                || cache_breakpoint == Some((message_index, block_index))
-                            {
-                                // canonical 的 ttl/断点优先级不是 CLI wire 字段。
-                                part["cache_control"] = json!({"type":"ephemeral"});
+                            ContentBlock::Image { source, .. } => {
+                                contents.push(remote_image(source)?);
                             }
-                            contents.push(part);
-                        }
-                        ContentBlock::Image { source, .. } => {
-                            contents.push(remote_image(source)?);
-                        }
-                        ContentBlock::ToolUse {
-                            id, name, input, ..
-                        } => {
-                            let arguments = if let Some(value) = input.as_str() {
-                                value.to_owned()
-                            } else {
-                                serde_json::to_string(input).map_err(|_| unsupported_request())?
-                            };
-                            calls.push(json!({"id":id,"type":"function","index":calls.len(),"function":{"name":name,"arguments":arguments}}));
-                        }
-                        ContentBlock::ToolResult {
-                            tool_use_id,
-                            content,
-                            content_kind,
-                            is_error,
-                            ..
-                        } => {
-                            let content = if *content_kind == Some(ToolResultContentKind::Json) {
-                                json!(content.to_string())
-                            } else {
-                                remote_result(content)?
-                            };
-                            let mut result =
-                                json!({"role":"tool","tool_call_id":tool_use_id,"content":content});
-                            if *is_error == Some(true) {
-                                result["is_error"] = json!(true);
+                            ContentBlock::ToolUse {
+                                id, name, input, ..
+                            } => {
+                                let arguments = if let Some(value) = input.as_str() {
+                                    value.to_owned()
+                                } else {
+                                    serde_json::to_string(input)
+                                        .map_err(|_| unsupported_request())?
+                                };
+                                calls.push(json!({"id":id,"type":"function","index":calls.len(),"function":{"name":name,"arguments":arguments}}));
                             }
-                            results.push(result);
-                        }
-                        ContentBlock::Thinking {
-                            thinking,
-                            signature,
-                        } => {
-                            let current = row
-                                .get("reasoning_content")
-                                .and_then(Value::as_str)
-                                .unwrap_or("");
-                            row["reasoning_content"] = json!(format!("{current}{thinking}"));
-                            if let Some(signature) = signature {
-                                row["reasoning_content_signature"] = json!(signature);
+                            ContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                content_kind,
+                                is_error,
+                                ..
+                            } => {
+                                let content = if *content_kind == Some(ToolResultContentKind::Json)
+                                {
+                                    json!(content.to_string())
+                                } else {
+                                    remote_result(content)?
+                                };
+                                let mut result = json!({"role":"tool","tool_call_id":tool_use_id,"content":content});
+                                if *is_error == Some(true) {
+                                    result["is_error"] = json!(true);
+                                }
+                                results.push(result);
                             }
-                            row["reasoning_item"] = json!({"type":"reasoning","summary":[{"type":"summary_text","text":row["reasoning_content"]}]});
-                        }
-                        ContentBlock::Reasoning {
-                            summary,
-                            content,
-                            encrypted_content,
-                        } => {
-                            let mut reasoning = json!({"type":"reasoning"});
-                            if !summary.is_empty() {
-                                reasoning["summary"] = json!(
-                                    summary
-                                        .iter()
-                                        .map(|text| json!({"type":"summary_text","text":text}))
-                                        .collect::<Vec<_>>()
-                                );
+                            ContentBlock::Thinking {
+                                thinking,
+                                signature,
+                            } => {
+                                reasoning_text.push_str(thinking);
+                                if let Some(signature) = signature {
+                                    row["reasoning_content_signature"] = json!(signature);
+                                }
                             }
-                            if !content.is_empty() {
-                                reasoning["content"] = json!(
+                            ContentBlock::Reasoning {
+                                summary,
+                                content,
+                                encrypted_content,
+                            } => {
+                                let mut reasoning = json!({"type":"reasoning"});
+                                for (index, part) in summary.iter().chain(content).enumerate() {
+                                    if index > 0 {
+                                        reasoning_text.push('\n');
+                                    }
+                                    reasoning_text.push_str(part);
+                                }
+                                if !summary.is_empty() {
+                                    reasoning["summary"] = json!(
+                                        summary
+                                            .iter()
+                                            .map(|text| json!({"type":"summary_text","text":text}))
+                                            .collect::<Vec<_>>()
+                                    );
+                                }
+                                if !content.is_empty() {
+                                    reasoning["content"] =
+                                        json!(
                                     content
                                         .iter()
                                         .map(|text| json!({"type":"reasoning_text","text":text}))
                                         .collect::<Vec<_>>()
                                 );
+                                }
+                                if let Some(encrypted) = encrypted_content {
+                                    reasoning["encrypted_content"] = json!(encrypted);
+                                }
+                                row["reasoning_item"] = reasoning;
                             }
-                            if let Some(encrypted) = encrypted_content {
-                                reasoning["encrypted_content"] = json!(encrypted);
+                            ContentBlock::RedactedThinking { data } => {
+                                row["reasoning_item"] =
+                                    json!({"type":"reasoning","encrypted_content":data});
                             }
-                            row["reasoning_item"] = reasoning;
+                            _ => return Err(unsupported_request()),
                         }
-                        ContentBlock::RedactedThinking { data } => {
-                            row["reasoning_item"] =
-                                json!({"type":"reasoning","encrypted_content":data});
-                        }
-                        _ => return Err(unsupported_request()),
                     }
                 }
-                row["content"] = if matches!(item.role, Role::System | Role::Developer)
-                    || contents.iter().any(|part| part["type"] == "image_url")
-                {
-                    json!(contents)
-                } else {
-                    json!(text.join(if item.role == Role::User { "\n" } else { "" }))
-                };
-                if !contents.is_empty() {
-                    row["contents"] = json!(contents);
+            }
+            if let Some(tool_calls) = &item.tool_calls {
+                for call in tool_calls {
+                    if !calls
+                        .iter()
+                        .any(|existing| existing["id"].as_str() == Some(call.id.as_str()))
+                    {
+                        calls.push(json!({"id":call.id,"type":"function","index":calls.len(),"function":{"name":call.name,"arguments":call.arguments}}));
+                    }
                 }
+            }
+            if let Some(id) = &item.tool_call_id {
+                row["tool_call_id"] = json!(id);
             }
         }
-        if let Some(tool_calls) = &item.tool_calls {
-            for call in tool_calls {
-                if !calls
-                    .iter()
-                    .any(|existing| existing["id"].as_str() == Some(call.id.as_str()))
-                {
-                    calls.push(json!({"id":call.id,"type":"function","index":calls.len(),"function":{"name":call.name,"arguments":call.arguments}}));
-                }
+        row["content"] = if (matches!(first.role, Role::System | Role::Developer)
+            && matches!(&first.content, MessageContent::Blocks(_)))
+            || contents.iter().any(|part| part["type"] == "image_url")
+        {
+            json!(contents)
+        } else {
+            json!(text.join(if first.role == Role::User { "\n" } else { "" }))
+        };
+        if !contents.is_empty() {
+            row["contents"] = json!(contents);
+        }
+        if !reasoning_text.is_empty() {
+            if row.get("reasoning_item").is_none() {
+                row["reasoning_item"] = json!({"type":"reasoning","summary":[{"type":"summary_text","text":reasoning_text}]});
             }
+            row["reasoning_content"] = Value::String(reasoning_text);
         }
         if !calls.is_empty() {
             row["tool_calls"] = json!(calls);
         }
-        if let Some(id) = &item.tool_call_id {
-            row["tool_call_id"] = json!(id);
-        }
         // 官方 FWc 将同一 user 内容中的工具结果先发送，结果之间保持原顺序。
         let has_results = !results.is_empty();
         messages.extend(results);
-        if !has_results
-            || !contents.is_empty()
-            || matches!(&item.content, MessageContent::Text(value) if !value.is_empty())
-        {
+        if !has_results || !contents.is_empty() || text.iter().any(|value| !value.is_empty()) {
             messages.push(row);
         }
+        message_index += group.len();
     }
     if let Some(instructions) = &request.instructions {
         messages.insert(0, json!({"role":"system","content":instructions}));

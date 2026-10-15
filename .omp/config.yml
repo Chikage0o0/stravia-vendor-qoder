@@ -1,0 +1,5 @@
+modelRoles:
+  smol: stravia/smol:high
+  slow: stravia/slow:high
+  default: stravia/default:high
+  task: stravia/task:high
