@@ -30,7 +30,7 @@
 ## 安装与使用
 
 1. 安装 Stravia。
-2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.1.10.wasm`。维护者发布后，也可从本仓库 Releases 下载对应版本并用 `SHA256SUMS` 校验。
+2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.1.11.wasm`。维护者发布后，也可从本仓库 Releases 下载对应版本并用 `SHA256SUMS` 校验。
 3. 新建 **Qoder** 供应商连接，选择 `cn` 或 `global`。
 4. 发起浏览器授权，打开返回的网址完成账户选择；超过 5 分钟需重新发起。
 5. 授权完成后同步模型，再按 Stravia 的客户端 API 配置接入。
@@ -183,14 +183,14 @@ vendor/             消息编译器与第三方许可证
 
 ## 变更记录
 
-### Unreleased
+### 0.1.11
 
 - 配套 Stravia dev 提交更新为 `7fac0bc5af644ae13c389b219700a9c4359181af`（SDK 仍为 `0.4.0`）；最低 Rust 版本及固定工具链同步升至 SDK 要求的 `1.99.0`，发布工作流使用相同提交。
 - 推理投影适配统一 canonical 请求控制：从 `parameters.top_k` 读取采样值，使用 `reasoning.level` / `mode` / `budget_tokens`，不再依赖旧 `ProtocolExt`、`reasoning.effort` / `enabled` 或已移除的工具附加字段。Qoder 白名单边界不变，不能表达的原生工具与工具子集选择不出站。
 - 保留 Responses 同轮 reasoning、文本和并行工具调用的原生消息合并及反序工具结果回归，不把 canonical 内容项误当作独立 assistant 轮。
 - 依赖升级至 Stravia dev SDK `0.4.0`，同步本地与 CI checkout 布局；组件契约迁移至 owned canonical 文本、显式编码执行接口与 WebSocket reuse-age 参数。额外客户端请求头声明保持为空，不扩大权限。
 - 客户端身份更新为 Qoder CLI `1.1.70`，同步所有原生身份与签名字段；保留官方 `1.1.65` 的独立密码学向量，组件契约检查签名、请求头与业务版本的一致性，不固定发行版本默认值。
-- 使用固定 Rust `1.99.0` 工具链通过全目标 `cargo check --locked --all-targets`、release Wasm 构建、21 项单元测试与 6 项真实 Wasm 组件契约；独立运行 `protocol_smoke` 加载组件，以全合成 stdin HTTP/SSE 响应返回 `SDK_DEV_OK`，usage 总计 14 token。本轮未调用真实账号服务；使用新版须重新构建并导入插件。
+- 发布前使用固定 Rust `1.99.0` 工具链和配套宿主提交完成 release Wasm 构建，通过 21 项单元测试与 6 项真实 Wasm 组件契约；独立运行 `protocol_smoke` 加载组件，以全合成 stdin HTTP/SSE 响应返回 `RELEASE_0_1_11_OK`，usage 总计 14 token。本轮未调用真实账号服务；使用新版须重新构建并导入插件。
 
 ### 0.1.10
 
