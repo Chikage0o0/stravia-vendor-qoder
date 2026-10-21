@@ -30,7 +30,7 @@
 ## 安装与使用
 
 1. 安装 Stravia。
-2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.1.11.wasm`。维护者发布后，也可从本仓库 Releases 下载对应版本并用 `SHA256SUMS` 校验。
+2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.1.12.wasm`。也可从本仓库 [Releases](https://github.com/Chikage0o0/stravia-vendor-qoder/releases/tag/v0.1.12) 下载对应版本并用 `SHA256SUMS` 校验。
 3. 新建 **Qoder** 供应商连接，选择 `cn` 或 `global`。
 4. 发起浏览器授权，打开返回的网址完成账户选择；超过 5 分钟需重新发起。
 5. 授权完成后同步模型，再按 Stravia 的客户端 API 配置接入。
@@ -154,7 +154,7 @@ task test
 - 20 组 SDK 等价输入通过实际 Wasm 与官方黄金向量的 JSON 语义差分；随机 ID、时间和传入会话归一化，业务标题由官方 `E_a` 独立计算。实际出站同时检查 Fetch 默认头、三种响应编码策略及稳定合成身份。永久 `protocol_smoke` 另经 Responses 字符串入口返回 `SDK_DEV_OK`，合成 usage 总计 14 token。
 - 配套宿主通过 6 项 HTTP 编码/解码测试及 2 项真实 TCP 编码协商测试，覆盖声明保序、首次去重、空列表 `identity`、响应白名单、截断及流式边界。Wasm mock 回复不冒充宿主 HTTP 解压验证。
 
-官方原始场景保存在 `tests/fixtures/qoder_cli_1_1_75_body_cases.json`。差分中的显式缓存使用直接 SDK `CacheControl`，因为本轮 Anthropic 入口转换已将该单文本块折为字符串；非标准 `JPG` MIME 也使用直接 SDK 媒体输入，不声称 Anthropic wire 接受它。SDK 没有对应的历史清除控制，等价 CLI 输入不提供 `generation.reasoning.preserve=false`。完整合成输入、正文、差分范围及组件 SHA-256 保存在本地生成的 `target/qoder-cli-1.1.75-parity-report.json`，其中不保存认证请求头。这些验证没有访问生产账号。
+官方原始场景保存在 `tests/fixtures/qoder_cli_1_1_75_body_cases.json`。差分中的显式缓存使用直接 SDK `CacheControl`，因为本轮 Anthropic 入口转换已将该单文本块折为字符串；非标准 `JPG` MIME 也使用直接 SDK 媒体输入，不声称 Anthropic wire 接受它。SDK 没有对应的历史清除控制，等价 CLI 输入不提供 `generation.reasoning.preserve=false`。完整合成输入、正文、差分范围及组件 SHA-256 保存在本地生成的 `target/qoder-cli-1.1.75-parity-report.json`，其中不保存认证请求头。该报告对应协议对齐时的发布前构建，下载附件的校验和以对应 Release 的 `SHA256SUMS` 为准。这些验证没有访问生产账号。
 
 独立组件 smoke 已运行，包含固定版本宿主的原始 `credential_bundle_from_response` 函数和 `CredentialBundle` 类型：旧 `0.1.5` 产物因缺少标准访问令牌被拒收，修复版通过凭据接收及元数据 JSON 往返，并继续完成模型、额度、中文文本、推理、分片工具参数和 usage。组件回归同时确认刷新时不同的 canonical 账号仍被拒绝；缺少 `event:finish` 和跨区域凭据也被拒绝。这部分验证不调用真实账号。
 
@@ -210,7 +210,7 @@ vendor/             消息编译器与第三方许可证
 
 ## 变更记录
 
-### 未发布
+### 0.1.12
 
 - 配套 Stravia dev 基线更新为 `a97469a5a577f61eaa0b5f262005c9ee3603b8c6`，五个 Stravia crate 统一升级为 `0.5.2`，Vendor WIT world 为 `stravia:vendor@0.5.1`；Rust 工具链和最低版本同步为 `1.99.1`，发布工作流使用相同 SDK 基线。宿主保序补丁仍是本轮工作区改动，尚未随该上游提交发布。
 - 客户端身份更新为官方 CLI `1.1.75`；普通 Fetch 补齐 `undici`、`Accept-Language` 和 `Sec-Fetch-Mode`，显式 OpenAPI UA 保持优先。按请求类别补齐版本、客户端类型和配置平台字段，修正模型头的缺失/空值条件。
