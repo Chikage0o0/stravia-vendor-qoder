@@ -6,9 +6,20 @@ struct PipeHost;
 #[async_trait]
 impl HostServices for PipeHost {
     fn http_start(&self, request: HttpRequest) -> Result<Arc<dyn HostHttpResponse>, HostFailure> {
+        let coding = |coding| match coding {
+            stravia_vendor_sdk::HttpContentCoding::Gzip => "gzip",
+            stravia_vendor_sdk::HttpContentCoding::Deflate => "deflate",
+            stravia_vendor_sdk::HttpContentCoding::Br => "br",
+            stravia_vendor_sdk::HttpContentCoding::Zstd => "zstd",
+        };
+        let compression = request.compression.map(|policy| json!({
+            "request": policy.request.map(coding),
+            "response": policy.response.into_iter().map(coding).collect::<Vec<_>>()
+        }));
         println!("{}", json!({"http_request": {
             "method": request.method, "url": request.url,
-            "headers": request.headers, "body": STANDARD.encode(request.body)
+            "headers": request.headers, "body": STANDARD.encode(request.body),
+            "compression": compression
         }}));
         std::io::stdout().flush().unwrap();
         let mut line = String::new();
@@ -20,7 +31,7 @@ impl HostServices for PipeHost {
             chunks: Mutex::new(response["body"].as_str().unwrap().as_bytes().chunks(7).map(<[u8]>::to_vec).collect()),
         }))
     }
-    async fn ws_connect(&self, _: String, _: Vec<(String, String)>, _: Vec<String>, _: Option<String>, _: Option<u64>) -> Result<Arc<dyn HostWebSocket>, HostFailure> {
+    async fn ws_connect(&self, _: WsRequest) -> Result<Arc<dyn HostWebSocket>, HostFailure> {
         Err(HostFailure::new(ErrorKind::Unsupported, "not used by this smoke"))
     }
     async fn read_private_state(&self) -> Result<Option<Vec<u8>>, HostFailure> { Ok(None) }

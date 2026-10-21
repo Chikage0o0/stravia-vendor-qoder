@@ -2,11 +2,12 @@
 use crate::{PROTOCOL, Region, auth, protocol};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::time::Duration;
+use std::{borrow::Cow, time::Duration};
 use stravia_protocol_codec::accumulator::StreamResponseAccumulator;
 use stravia_protocol_codec::transform::{ProtocolTransform, StreamDecodeStage};
 use stravia_runtime_contract::protocol::ir::{
-    AiRequest, ContentBlock, MediaSource, MessageContent, Role, ToolChoice, ToolResultContentKind,
+    AiRequest, CacheTtl, ContentBlock, MediaSource, MessageContent, Role, ToolChoice,
+    ToolResultContentKind,
 };
 use stravia_vendor_common::common;
 use stravia_vendor_sdk::{
@@ -60,7 +61,11 @@ pub(crate) fn execute(
     let identity = auth::identity(provider, region)?;
     request.model = model.to_owned();
     request.stream.enabled = true;
-    let canonical = project_request(&request)?;
+    let supports_vision = model_config
+        .and_then(|config| config.get("is_vl"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let canonical = project_request(&request, supports_vision)?;
     let body = build_body(canonical, model, source, &session, region, model_config)?;
     let raw = serde_json::to_vec(&body)
         .map_err(|_| common::plugin_error(ErrorKind::Invalid, "cannot serialize Qoder request"))?;
@@ -80,7 +85,7 @@ pub(crate) fn execute(
         true,
     )?;
     host.emit_started()?;
-    let response = host.http_start(http)?;
+    let response = protocol::start_http(host, http)?;
     let status = response.status()?;
     if status != 200 {
         let headers = response.headers()?;
@@ -138,32 +143,62 @@ fn consume_stream(
 }
 
 // 直接投影 canonical IR；OpenAI 编码器会重排并行工具历史，不能充当原生 wire 中间层。
-fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
+fn project_request(request: &AiRequest, supports_vision: bool) -> Result<Value, PluginError> {
     let mut parameters = serde_json::Map::new();
     // 仅投影 CLI 可表达的参数；其他请求选项不参与出站请求，也不使推理失败。
-    if let Some(value) = request.generation.temperature {
+    if let Some(value) = request.generation.temperature.filter(|value| *value >= 0.0) {
         parameters.insert("temperature".into(), json!(value));
     }
-    if let Some(value) = request.generation.top_p {
+    if let Some(value) = request
+        .generation
+        .top_p
+        .filter(|value| (0.0..=1.0).contains(value))
+    {
         parameters.insert("top_p".into(), json!(value));
     }
-    if let Some(value) = request.generation.max_tokens {
+    if let Some(value) = request.generation.max_tokens.filter(|value| *value > 0) {
         parameters.insert("max_tokens".into(), json!(value));
+    }
+    // is_enabled 的缺省 false 不是显式禁用；未提供控制时保留 CLI 目录默认。
+    let explicit_mode = matches!(
+        request.reasoning.mode.as_deref(),
+        Some("disabled" | "enabled" | "auto" | "adaptive")
+    );
+    let thinking_enabled = (explicit_mode
+        || request.reasoning.level.is_some()
+        || request.reasoning.budget_tokens.is_some())
+    .then(|| request.reasoning.is_enabled());
+    // 仅 level 的正向激活须等目录接受该 effort，不能为被丢弃的档位新增参数。
+    if let Some(enabled) = thinking_enabled
+        && (explicit_mode
+            || !enabled
+            || request
+                .reasoning
+                .budget_tokens
+                .is_some_and(|budget| budget > 0))
+    {
+        parameters.insert("enable_thinking".into(), json!(enabled));
     }
     if let Some(level) = request.reasoning.level {
         let effort = level.as_str();
-        parameters.insert(
-            "reasoning_effort".into(),
-            json!(if effort == "off" { "none" } else { effort }),
-        );
+        if !matches!(effort, "minimal" | "off") && thinking_enabled != Some(false) {
+            parameters.insert("qoder_reasoning_effort".into(), json!(effort));
+        }
     }
-    if let Some(budget) = request.reasoning.budget_tokens {
+    if thinking_enabled == Some(false) {
+        parameters.insert("reasoning_effort".into(), json!("none"));
+    } else if let Some(budget) = request.reasoning.budget_tokens.filter(|budget| *budget > 0) {
         parameters.insert("reasoning_budget_tokens".into(), json!(budget));
-        parameters.insert("enable_thinking".into(), json!(budget > 0));
-    } else if request.reasoning.is_enabled() {
-        parameters.insert("enable_thinking".into(), json!(true));
-    } else if request.reasoning.mode.as_deref() == Some("disabled") {
-        parameters.insert("enable_thinking".into(), json!(false));
+        // htt/J8e 从显式预算派生原生 effort；只有调用方显式选择的 level 优先。
+        parameters.entry("reasoning_effort").or_insert_with(|| {
+            json!(match budget {
+                0..=1024 => "low",
+                1025..=8192 => "medium",
+                8193..=24576 => "high",
+                24577..=49152 => "xhigh",
+                _ => "max",
+            })
+        });
     }
     if let Some(choice) = &request.tool_choice {
         let value = match choice {
@@ -177,7 +212,7 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
             parameters.insert("tool_choice".into(), value);
         }
     }
-    if let Some(top_k) = request.parameters.top_k {
+    if let Some(top_k) = request.parameters.top_k.filter(|value| *value > 0) {
         parameters.insert("top_k".into(), json!(top_k));
     }
     let cache_tail = request
@@ -188,33 +223,37 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
     let mut message_index = 0;
     // Responses 的 reasoning/message/function_call 是内容项，不是独立的 assistant 轮。
     // 先恢复一轮的内容，再按官方 UWc 投影，避免发出孤立思考和拆开的并行调用。
-    for group in request
-        .items
-        .chunk_by(|left, right| left.role == Role::Assistant && right.role == Role::Assistant)
-    {
+    for group in request.items.chunk_by(|left, right| {
+        left.role == right.role && matches!(left.role, Role::Assistant | Role::User)
+    }) {
         let first = &group[0];
         // Fgi 在一条原生消息内回找缓存块，不能跨 user/tool 边界回退。
         let cache_breakpoint = (cache_tail == Some(message_index + group.len() - 1)
             && first.role != Role::Tool)
             .then(|| {
-                group.iter().enumerate().rev().find_map(|(offset, item)| {
-                    let MessageContent::Blocks(blocks) = &item.content else {
-                        return None;
-                    };
-                    blocks
-                        .iter()
-                        .rposition(|block| {
-                            !matches!(
-                                block,
-                                ContentBlock::Thinking { .. }
-                                    | ContentBlock::Reasoning { .. }
-                                    | ContentBlock::RedactedThinking { .. }
-                                    | ContentBlock::ToolUse { .. }
-                                    | ContentBlock::ToolResult { .. }
-                            )
-                        })
-                        .map(|block_index| (message_index + offset, block_index))
-                })
+                group
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find_map(|(offset, item)| match &item.content {
+                        MessageContent::Text(text) if !text.is_empty() => {
+                            Some((message_index + offset, None))
+                        }
+                        MessageContent::Blocks(blocks) => blocks
+                            .iter()
+                            .rposition(|block| {
+                                !matches!(
+                                    block,
+                                    ContentBlock::Thinking { .. }
+                                        | ContentBlock::Reasoning { .. }
+                                        | ContentBlock::RedactedThinking { .. }
+                                        | ContentBlock::ToolUse { .. }
+                                        | ContentBlock::ToolResult { .. }
+                                )
+                            })
+                            .map(|block_index| (message_index + offset, Some(block_index))),
+                        _ => None,
+                    })
             })
             .flatten();
         let role = match first.role {
@@ -226,16 +265,43 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
         };
         let mut row = json!({"role":role,"content":""});
         let mut text = Vec::new();
-        let mut contents = Vec::new();
+        let mut contents = Vec::<Value>::new();
         let mut calls = Vec::new();
         let mut results = Vec::new();
         let mut reasoning_text = String::new();
         for (offset, item) in group.iter().enumerate() {
+            if first.role == Role::User && offset > 0 {
+                let ends_with_text = match &group[offset - 1].content {
+                    MessageContent::Text(text) => !text.is_empty(),
+                    MessageContent::Blocks(blocks) => {
+                        matches!(blocks.last(), Some(ContentBlock::Text { .. }))
+                    }
+                };
+                let starts_with_text = match &item.content {
+                    MessageContent::Text(text) => !text.is_empty(),
+                    MessageContent::Blocks(blocks) => {
+                        matches!(blocks.first(), Some(ContentBlock::Text { .. }))
+                    }
+                };
+                if ends_with_text
+                    && starts_with_text
+                    && let Some(part) = contents.last_mut()
+                    && let Some(Value::String(text)) = part.get_mut("text")
+                {
+                    // yco/DVl 在两个连续 text 边界多插入一个换行，hVl 再以换行连接。
+                    text.push('\n');
+                }
+            }
             match &item.content {
                 MessageContent::Text(value) => {
                     text.push(value.as_str());
-                    if first.role == Role::Assistant && group.len() > 1 && !value.is_empty() {
-                        contents.push(json!({"type":"text","text":value}));
+                    // 正常 bg/wVl/SVl 在 XQA 前把字符串恢复为 text 块。
+                    if matches!(first.role, Role::User | Role::Assistant) && !value.is_empty() {
+                        let mut part = json!({"type":"text","text":value});
+                        if cache_breakpoint == Some((message_index + offset, None)) {
+                            part["cache_control"] = json!({"type":"ephemeral"});
+                        }
+                        contents.push(part);
                     }
                 }
                 MessageContent::Blocks(blocks) => {
@@ -250,22 +316,42 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
                                 }
                                 text.push(value.as_str());
                                 let mut part = json!({"type":"text","text":value});
-                                if cache_control.is_some()
-                                    || cache_breakpoint
-                                        == Some((message_index + offset, block_index))
+                                if cache_breakpoint
+                                    == Some((message_index + offset, Some(block_index)))
                                 {
-                                    // canonical 的 ttl/断点优先级不是 CLI wire 字段。
+                                    // HYi 的自动断点覆盖先前 TTL；更早的显式标记保留 1h。
                                     part["cache_control"] = json!({"type":"ephemeral"});
+                                } else if let Some(cache) = cache_control {
+                                    part["cache_control"] = if cache.ttl == CacheTtl::Ephemeral1h {
+                                        json!({"type":"ephemeral","ttl":"1h"})
+                                    } else {
+                                        json!({"type":"ephemeral"})
+                                    };
                                 }
                                 contents.push(part);
                             }
                             ContentBlock::Image { source, .. } => {
-                                contents.push(remote_image(source)?);
+                                if first.role == Role::Assistant {
+                                    // IVl 只投影 text/thinking/redacted_thinking/tool_use。
+                                    continue;
+                                }
+                                // vVl 在 HYi 前降级不支持的格式；普通 image 的缓存字段
+                                // 则在 hVl/wco 重建 image_url 时丢弃。
+                                if let Some(part) = remote_image(
+                                    source,
+                                    supports_vision,
+                                    cache_breakpoint
+                                        == Some((message_index + offset, Some(block_index))),
+                                )? {
+                                    contents.push(part);
+                                }
                             }
                             ContentBlock::ToolUse {
                                 id, name, input, ..
                             } => {
-                                let arguments = if let Some(value) = input.as_str() {
+                                let arguments = if input.is_null() {
+                                    "{}".to_owned()
+                                } else if let Some(value) = input.as_str() {
                                     value.to_owned()
                                 } else {
                                     serde_json::to_string(input)
@@ -284,7 +370,11 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
                                 {
                                     json!(content.to_string())
                                 } else {
-                                    remote_result(content)?
+                                    remote_result(
+                                        content,
+                                        supports_vision,
+                                        *is_error == Some(true),
+                                    )?
                                 };
                                 let mut result = json!({"role":"tool","tool_call_id":tool_use_id,"content":content});
                                 if *is_error == Some(true) {
@@ -297,7 +387,9 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
                                 signature,
                             } => {
                                 reasoning_text.push_str(thinking);
-                                if let Some(signature) = signature {
+                                if let Some(signature) =
+                                    signature.as_deref().filter(|value| !value.is_empty())
+                                {
                                     row["reasoning_content_signature"] = json!(signature);
                                 }
                             }
@@ -363,6 +455,20 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
             || contents.iter().any(|part| part["type"] == "image_url")
         {
             json!(contents)
+        } else if !contents.is_empty() {
+            let mut joined = String::new();
+            let mut first_text = true;
+            for value in contents
+                .iter()
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+            {
+                if !first_text && first.role == Role::User {
+                    joined.push('\n');
+                }
+                joined.push_str(value);
+                first_text = false;
+            }
+            json!(joined)
         } else {
             json!(text.join(if first.role == Role::User { "\n" } else { "" }))
         };
@@ -381,7 +487,10 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
         // 官方 FWc 将同一 user 内容中的工具结果先发送，结果之间保持原顺序。
         let has_results = !results.is_empty();
         messages.extend(results);
-        if !has_results || !contents.is_empty() || text.iter().any(|value| !value.is_empty()) {
+        if first.role != Role::User
+            && (!has_results || !contents.is_empty() || text.iter().any(|value| !value.is_empty()))
+            || first.role == Role::User && !contents.is_empty()
+        {
             messages.push(row);
         }
         message_index += group.len();
@@ -400,35 +509,145 @@ fn project_request(request: &AiRequest) -> Result<Value, PluginError> {
     Ok(Value::Object(parameters))
 }
 
-fn remote_image(source: &MediaSource) -> Result<Value, PluginError> {
-    let url = match source {
-        MediaSource::Base64 { media_type, data } => format!("data:{media_type};base64,{data}"),
-        MediaSource::Url(url) => url.clone(),
+fn remote_image(
+    source: &MediaSource,
+    supports_vision: bool,
+    cache_breakpoint: bool,
+) -> Result<Option<Value>, PluginError> {
+    let normalize_type = |media_type: &str| {
+        let mut kind = media_type.trim().to_ascii_lowercase();
+        if !kind.contains('/') {
+            kind.insert_str(0, "image/");
+        }
+        if kind == "image/jpg" {
+            kind = "image/jpeg".into();
+        }
+        kind
+    };
+    let supported = |media_type: &str| {
+        matches!(
+            media_type,
+            "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+        )
+    };
+    let (url, unsupported) = match source {
+        MediaSource::Base64 { media_type, data } => {
+            let media_type = normalize_type(media_type);
+            if supported(&media_type) {
+                if data.is_empty() {
+                    return Ok(None);
+                }
+                (Cow::Owned(format!("data:{media_type};base64,{data}")), None)
+            } else {
+                (Cow::Borrowed(""), Some(media_type))
+            }
+        }
+        MediaSource::Url(url) => {
+            if url.is_empty() {
+                return Ok(None);
+            }
+            let data_type = url
+                .get(..5)
+                .filter(|prefix| prefix.eq_ignore_ascii_case("data:"))
+                .and_then(|_| url[5..].split([';', ',']).next())
+                .filter(|kind| kind.to_ascii_lowercase().starts_with("image/"))
+                .map(normalize_type)
+                .filter(|kind| !supported(kind));
+            let unsupported = data_type.or_else(|| {
+                let svg = url::Url::parse(url)
+                    .map(|url| url.path().to_ascii_lowercase().ends_with(".svg"))
+                    .unwrap_or_else(|_| {
+                        url.split(['?', '#'])
+                            .next()
+                            .is_some_and(|path| path.to_ascii_lowercase().ends_with(".svg"))
+                    });
+                svg.then(|| "image/svg+xml".into())
+            });
+            (Cow::Borrowed(url.as_str()), unsupported)
+        }
         _ => return Err(unsupported_request()),
     };
-    Ok(json!({"type":"image_url","image_url":{"url":url}}))
+    if let Some(media_type) = unsupported {
+        let mut part = json!({"type":"text","text":format!(
+            "[Unsupported image omitted: {media_type}. Supported formats are PNG, JPEG, GIF, and WebP.]"
+        )});
+        if cache_breakpoint {
+            part["cache_control"] = json!({"type":"ephemeral"});
+        }
+        return Ok(Some(part));
+    }
+    if !supports_vision {
+        return Ok(Some(
+            json!({"type":"text","text":"[Image omitted: the current model does not support image input. Ask the user to switch to a vision-capable model if the image content is needed.]"}),
+        ));
+    }
+    Ok(Some(json!({"type":"image_url","image_url":{"url":url}})))
 }
 
-fn remote_result(content: &Value) -> Result<Value, PluginError> {
+fn remote_result(
+    content: &Value,
+    supports_vision: bool,
+    is_error: bool,
+) -> Result<Value, PluginError> {
+    if is_error
+        && let Some(parts) = content.as_array()
+        && parts
+            .iter()
+            .any(|part| part.get("type").and_then(Value::as_str) != Some("text"))
+    {
+        // bg/MVl 对混合类型的错误结果只留下文本，并在块之间插入两个换行。
+        let mut joined = String::new();
+        let mut first = true;
+        for part in parts
+            .iter()
+            .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+        {
+            if !first {
+                joined.push_str("\n\n");
+            }
+            joined.push_str(part.get("text").and_then(Value::as_str).unwrap_or(""));
+            first = false;
+        }
+        return Ok(json!(joined));
+    }
     let Some(parts) = content.as_array() else {
-        return Ok(content
-            .as_str()
-            .map(|value| json!(value))
-            .unwrap_or_else(|| json!(content.to_string())));
+        return Ok(json!(match content {
+            Value::Null | Value::Bool(false) => String::new(),
+            Value::Number(number) if number.as_f64() == Some(0.0) => String::new(),
+            Value::String(text) => text.clone(),
+            Value::Object(_) => "[object Object]".into(),
+            value => value.to_string(),
+        }));
     };
     let mut wire = Vec::with_capacity(parts.len());
     for part in parts {
         match part.get("type").and_then(Value::as_str) {
-            Some("text") => wire.push(json!({"type":"text","text":part["text"]})),
+            Some("text") => {
+                if part
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| !text.is_empty())
+                {
+                    wire.push(json!({"type":"text","text":part["text"]}));
+                }
+            }
             Some("image") => {
                 let source: MediaSource = serde_json::from_value(part["source"].clone())
                     .map_err(|_| unsupported_request())?;
-                wire.push(remote_image(&source)?);
+                if let Some(part) = remote_image(&source, supports_vision, false)? {
+                    wire.push(part);
+                }
             }
-            Some("image_url") => wire.push(json!({
-                "type":"image_url",
-                "image_url":{"url":part["image_url"]["url"]}
-            })),
+            Some("image_url") => {
+                let url = part["image_url"]["url"]
+                    .as_str()
+                    .ok_or_else(unsupported_request)?;
+                if let Some(part) =
+                    remote_image(&MediaSource::Url(url.into()), supports_vision, false)?
+                {
+                    wire.push(part);
+                }
+            }
             _ => return Err(unsupported_request()),
         }
     }
@@ -448,6 +667,39 @@ fn unsupported_request() -> PluginError {
         ErrorKind::Invalid,
         "Qoder RemoteChatAsk cannot represent this message content",
     )
+}
+
+fn native_max_tokens(value: Option<&Value>) -> u64 {
+    let number = value.and_then(|value| {
+        if let Some(value) = value.as_str() {
+            let value = value.trim();
+            if value.is_empty() {
+                return None;
+            }
+            let radix = [
+                ("0x", 16),
+                ("0X", 16),
+                ("0o", 8),
+                ("0O", 8),
+                ("0b", 2),
+                ("0B", 2),
+            ]
+            .into_iter()
+            .find_map(|(prefix, radix)| value.strip_prefix(prefix).map(|digits| (digits, radix)));
+            if let Some((digits, radix)) = radix {
+                return u64::from_str_radix(digits, radix)
+                    .ok()
+                    .map(|value| value as f64);
+            }
+            value.parse::<f64>().ok()
+        } else {
+            value.as_f64()
+        }
+    });
+    number
+        .filter(|value| value.fract() == 0.0 && *value > 0.0 && *value <= 9_007_199_254_740_991.0)
+        .map(|value| value as u64)
+        .unwrap_or(32_000)
 }
 
 fn build_body(
@@ -470,6 +722,9 @@ fn build_body(
             "invalid canonical Qoder request",
         ));
     };
+    let requested_effort = parameters
+        .remove("qoder_reasoning_effort")
+        .and_then(|value| value.as_str().map(str::to_owned));
     let mut messages = parameters.remove("messages").unwrap_or_else(|| json!([]));
     if !messages.is_array() {
         return Err(common::plugin_error(
@@ -576,7 +831,12 @@ fn build_body(
     })?;
     if let Some(provider) = catalog
         .and_then(|row| row.get("outer_provider"))
-        .filter(|value| !value.is_null() && *value != &json!(false) && *value != &json!(""))
+        .filter(|value| {
+            !value.is_null()
+                && value.as_bool() != Some(false)
+                && value.as_str() != Some("")
+                && value.as_f64() != Some(0.0)
+        })
     {
         object.insert("outer_provider".into(), provider.clone());
     } else {
@@ -584,34 +844,83 @@ fn build_body(
     }
     if let Some(adapter) = catalog
         .and_then(|row| row.get("custom_provider_adapter"))
-        .filter(|value| !value.is_null() && *value != &json!(false) && *value != &json!(""))
+        .filter(|value| {
+            !value.is_null()
+                && value.as_bool() != Some(false)
+                && value.as_str() != Some("")
+                && value.as_f64() != Some(0.0)
+        })
     {
         object.insert("custom_provider_adapter".into(), adapter.clone());
     }
-    if !parameters.contains_key("max_tokens") {
-        let limit = catalog
-            .and_then(|row| row.get("max_output_tokens"))
-            .and_then(Value::as_u64)
-            .filter(|limit| *limit > 0 && *limit <= 9_007_199_254_740_991)
-            .unwrap_or(32_000);
-        parameters.insert("max_tokens".into(), json!(limit));
-    } else {
-        let limit = parameters
+    let limit = native_max_tokens(
+        parameters
             .get("max_tokens")
-            .and_then(|value| {
-                value
-                    .as_u64()
-                    .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
-            })
-            .filter(|limit| *limit > 0 && *limit <= 9_007_199_254_740_991)
-            .unwrap_or(32_000);
-        parameters.insert("max_tokens".into(), json!(limit));
+            .or_else(|| catalog.and_then(|row| row.get("max_output_tokens"))),
+    );
+    parameters.insert("max_tokens".into(), json!(limit));
+    let selected_effort = requested_effort.or_else(|| {
+        (!parameters.contains_key("reasoning_effort")
+            && parameters.get("enable_thinking").and_then(Value::as_bool) != Some(false))
+        .then(|| {
+            catalog
+                .and_then(|row| row.get("default_effort"))
+                .and_then(Value::as_str)
+                .map(|effort| effort.trim().to_ascii_lowercase())
+                .map(|effort| match effort.as_str() {
+                    "off" | "disabled" => "none".into(),
+                    _ => effort,
+                })
+                .filter(|effort| {
+                    matches!(
+                        effort.as_str(),
+                        "none" | "low" | "medium" | "high" | "xhigh" | "max"
+                    )
+                })
+        })
+        .flatten()
+    });
+    if let Some(effort) = selected_effort {
+        let supports_disabled = catalog
+            .and_then(|row| row.get("supports_disabled"))
+            .and_then(Value::as_bool)
+            == Some(true);
+        let efforts = catalog.and_then(|row| row.get("efforts"));
+        let has_selector = efforts.is_some_and(Value::is_array) || supports_disabled;
+        let has_outer_provider = catalog.is_some_and(|row| row.contains_key("outer_provider"));
+        let supported_effort = efforts.is_some_and(|values| match values {
+            Value::Array(values) => values
+                .iter()
+                .any(|value| value.as_str() == Some(effort.as_str())),
+            Value::Object(values) => values.contains_key(&effort),
+            Value::String(values) => values
+                .split(|c: char| c == ',' || c.is_whitespace())
+                .any(|value| value == effort),
+            _ => false,
+        }) || effort == "none" && supports_disabled;
+        if !has_outer_provider && !has_selector || supported_effort {
+            parameters.insert("reasoning_effort".into(), json!(effort));
+        }
     }
-    if let Some(effort) = parameters.get("reasoning_effort").and_then(Value::as_str) {
-        let enabled = effort != "none";
+    // 原生 effort 只在未提供激活控制时决定开关，不能推翻 SDK 的 mode/level/budget 优先级。
+    let enabled = parameters
+        .get("enable_thinking")
+        .and_then(Value::as_bool)
+        .or_else(|| {
+            parameters
+                .get("reasoning_effort")
+                .and_then(Value::as_str)
+                .map(|effort| effort != "none")
+        });
+    if let Some(enabled) = enabled {
         parameters.insert("enable_thinking".into(), json!(enabled));
         if !enabled {
             parameters.remove("reasoning_budget_tokens");
+            if parameters.get("reasoning_effort").and_then(Value::as_str) != Some("none") {
+                parameters.insert("reasoning_effort".into(), json!("none"));
+            }
+        } else if parameters.get("reasoning_effort").and_then(Value::as_str) == Some("none") {
+            parameters.remove("reasoning_effort");
         }
     }
     let reasoning = object.get("is_reasoning").and_then(Value::as_bool) == Some(true)
@@ -1152,6 +1461,245 @@ mod tests {
         assert_eq!(error.kind.retry_after(), Some(Duration::from_millis(1500)));
     }
     #[test]
+    fn normal_strings_and_empty_users_follow_cli_preprocessing() {
+        let endpoint = common::endpoint("anthropic").unwrap();
+        let transform = ProtocolTransform::global()
+            .bind(endpoint, endpoint)
+            .unwrap();
+        let input = |content: Value| {
+            transform
+                .decode_request(json!({
+                    "model":"synthetic-model","max_tokens":1,
+                    "messages":[{"role":"user","content":content}]
+                }))
+                .unwrap()
+        };
+        let body = project_request(&input(json!("hello")), true).unwrap();
+        assert_eq!(
+            body["messages"],
+            json!([{
+                "role":"user","content":"hello",
+                "contents":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral"}}]
+            }])
+        );
+        assert_eq!(
+            project_request(&input(json!("")), true).unwrap()["messages"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn images_follow_preconversion_and_postconversion_cache_timing() {
+        let png = MediaSource::Url("https://example.invalid/image.png".into());
+        assert_eq!(
+            remote_image(&png, true, true).unwrap(),
+            Some(json!({
+                "type":"image_url","image_url":{"url":"https://example.invalid/image.png"}
+            }))
+        );
+        let no_vision = remote_image(&png, false, true).unwrap().unwrap();
+        assert!(no_vision.get("cache_control").is_none());
+        let svg = MediaSource::Url("https://example.invalid/image.svg?synthetic=1".into());
+        let omitted = remote_image(&svg, true, true).unwrap().unwrap();
+        assert_eq!(omitted["type"], "text");
+        assert_eq!(omitted["cache_control"], json!({"type":"ephemeral"}));
+        let jpg = MediaSource::Base64 {
+            media_type: "JPG".into(),
+            data: "c3ludGhldGlj".into(),
+        };
+        assert_eq!(
+            remote_image(&jpg, true, false).unwrap().unwrap()["image_url"]["url"],
+            "data:image/jpeg;base64,c3ludGhldGlj"
+        );
+        assert_eq!(
+            remote_result(&json!(false), true, false).unwrap(),
+            json!("")
+        );
+        assert_eq!(remote_result(&json!(0), true, false).unwrap(), json!(""));
+    }
+
+    #[test]
+    fn native_token_limits_and_catalog_effort_follow_cli_rules() {
+        for value in [json!("1e3"), json!("0x3e8"), json!(1000.0)] {
+            assert_eq!(native_max_tokens(Some(&value)), 1000);
+        }
+        for value in [json!(0), json!(-1), json!(1.5), json!(""), json!(true)] {
+            assert_eq!(native_max_tokens(Some(&value)), 32_000);
+        }
+        let config =
+            json!({"is_reasoning":true,"default_effort":"medium","efforts":["low","medium"]});
+        let body = build_body(
+            json!({"messages":[]}),
+            "remote",
+            "system",
+            "synthetic-session",
+            Region::Global,
+            Some(&config),
+        )
+        .unwrap();
+        assert_eq!(
+            body["parameters"],
+            json!({"max_tokens":32000,"reasoning_effort":"medium","enable_thinking":true})
+        );
+        let rejected = build_body(
+            json!({"messages":[],"qoder_reasoning_effort":"high"}),
+            "remote",
+            "system",
+            "synthetic-session",
+            Region::Global,
+            Some(&config),
+        )
+        .unwrap();
+        assert_eq!(rejected["parameters"], json!({"max_tokens":32000}));
+        assert!(
+            rejected["parameters"]
+                .get("qoder_reasoning_effort")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn unsupported_effort_does_not_add_an_activation_override() {
+        let mut request = AiRequest::new("remote", vec![]);
+        request.reasoning.level = Some(stravia_runtime_contract::thinking::ThinkingLevel::High);
+        let config = json!({"is_reasoning":true,"efforts":["low"]});
+        let body = build_body(
+            project_request(&request, false).unwrap(),
+            "remote",
+            "system",
+            "synthetic-session",
+            Region::Global,
+            Some(&config),
+        )
+        .unwrap();
+        assert_eq!(body["parameters"], json!({"max_tokens":32000}));
+        assert_eq!(body["model_config"]["is_reasoning"], json!(true));
+    }
+
+    #[test]
+    fn thinking_signatures_preserve_only_nonempty_proofs() {
+        for signature in ["", "synthetic-signature"] {
+            let mut request = AiRequest::new("remote", vec![]);
+            request.items = serde_json::from_value(json!([{"role":"assistant","content":[{
+                "type":"thinking","thinking":"Consider the alternatives.","signature":signature
+            }]}]))
+            .unwrap();
+            let body = build_body(
+                project_request(&request, false).unwrap(),
+                "remote",
+                "system",
+                "synthetic-session",
+                Region::Global,
+                None,
+            )
+            .unwrap();
+            assert_eq!(
+                body["messages"][0]["reasoning_content"],
+                "Consider the alternatives."
+            );
+            let expected_signature = (!signature.is_empty()).then(|| json!(signature));
+            assert_eq!(
+                body["messages"][0].get("reasoning_content_signature"),
+                expected_signature.as_ref()
+            );
+        }
+    }
+
+    #[test]
+    fn disabled_mode_overrides_positive_reasoning_budget() {
+        let mut request = AiRequest::new("remote", vec![]);
+        request.reasoning.mode = Some("disabled".into());
+        request.reasoning.budget_tokens = Some(1024);
+        let config = json!({"is_reasoning":true,"default_effort":"medium"});
+        let body = build_body(
+            project_request(&request, false).unwrap(),
+            "remote",
+            "system",
+            "host-session",
+            Region::Global,
+            Some(&config),
+        )
+        .unwrap();
+        assert_eq!(
+            body["parameters"],
+            json!({"max_tokens":32000,"enable_thinking":false,"reasoning_effort":"none"})
+        );
+        assert_eq!(body["model_config"]["is_reasoning"], json!(false));
+    }
+
+    #[test]
+    fn disabled_mode_overrides_supported_high_effort() {
+        let mut request = AiRequest::new("remote", vec![]);
+        request.reasoning.mode = Some("disabled".into());
+        request.reasoning.level = Some(stravia_runtime_contract::thinking::ThinkingLevel::High);
+        let config =
+            json!({"is_reasoning":true,"default_effort":"medium","efforts":["medium","high"]});
+        let body = build_body(
+            project_request(&request, false).unwrap(),
+            "remote",
+            "system",
+            "host-session",
+            Region::Global,
+            Some(&config),
+        )
+        .unwrap();
+        assert_eq!(
+            body["parameters"],
+            json!({"max_tokens":32000,"enable_thinking":false,"reasoning_effort":"none"})
+        );
+        assert_eq!(body["model_config"]["is_reasoning"], json!(false));
+    }
+
+    #[test]
+    fn enabled_modes_override_off_level_and_zero_budget() {
+        for mode in ["enabled", "auto", "adaptive"] {
+            let mut request = AiRequest::new("remote", vec![]);
+            request.reasoning.mode = Some(mode.into());
+            request.reasoning.level = Some(stravia_runtime_contract::thinking::ThinkingLevel::Off);
+            request.reasoning.budget_tokens = Some(0);
+            let config = json!({"is_reasoning":true,"default_effort":"medium","efforts":["none","medium"],"supports_disabled":true});
+            let body = build_body(
+                project_request(&request, false).unwrap(),
+                "remote",
+                "system",
+                "host-session",
+                Region::Global,
+                Some(&config),
+            )
+            .unwrap();
+            assert_eq!(
+                body["parameters"],
+                json!({"max_tokens":32000,"enable_thinking":true,"reasoning_effort":"medium"})
+            );
+            assert_eq!(body["model_config"]["is_reasoning"], json!(true));
+        }
+    }
+
+    #[test]
+    fn unspecified_reasoning_keeps_catalog_default_effort() {
+        for mode in [None, Some("unknown".into())] {
+            let mut request = AiRequest::new("remote", vec![]);
+            request.reasoning.mode = mode;
+            let config =
+                json!({"is_reasoning":true,"default_effort":"medium","efforts":["medium"]});
+            let body = build_body(
+                project_request(&request, false).unwrap(),
+                "remote",
+                "system",
+                "host-session",
+                Region::Global,
+                Some(&config),
+            )
+            .unwrap();
+            assert_eq!(
+                body["parameters"],
+                json!({"max_tokens":32000,"enable_thinking":true,"reasoning_effort":"medium"})
+            );
+            assert_eq!(body["model_config"]["is_reasoning"], json!(true));
+        }
+    }
+
+    #[test]
     fn reasoning_effort_controls_thinking_and_budget() {
         let config = json!({"key":"remote","source":"system","is_reasoning":true});
         let off = build_body(
@@ -1172,7 +1720,15 @@ mod tests {
             off.pointer("/model_config/is_reasoning"),
             Some(&json!(false))
         );
-        let on = build_body(json!({"messages":[],"reasoning_effort":"high","enable_thinking":false,"reasoning_budget_tokens":100}), "remote", "system", "host-session", Region::Global, Some(&config)).unwrap();
+        let on = build_body(
+            json!({"messages":[],"reasoning_effort":"high","reasoning_budget_tokens":100}),
+            "remote",
+            "system",
+            "host-session",
+            Region::Global,
+            Some(&config),
+        )
+        .unwrap();
         assert_eq!(
             on.pointer("/parameters/enable_thinking"),
             Some(&json!(true))
@@ -1189,7 +1745,7 @@ mod tests {
         let result = remote_result(&json!([
             {"type":"text","text":"result","cache_control":{"type":"ephemeral"},"extra":"ignored"},
             {"type":"image_url","image_url":{"url":"https://example.invalid/result.png","detail":"high","extra":"ignored"},"extra":"ignored"}
-        ]))
+        ]), true, false)
         .unwrap();
         assert_eq!(
             result,

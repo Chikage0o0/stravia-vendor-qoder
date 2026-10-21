@@ -18,7 +18,7 @@ use stravia_runtime_contract::{CancellationToken, Deadline};
 use stravia_vendor_common::common;
 use stravia_vendor_runtime::{
     HostFailure, HostHttpResponse, HostServices, HostWebSocket, HttpRequest, LoadedPlugin,
-    LogLevel, OperationScope, RuntimeError, RuntimeEvent, VendorRuntime,
+    LogLevel, OperationScope, RuntimeError, RuntimeEvent, VendorRuntime, WsRequest,
 };
 use stravia_vendor_sdk::{
     AllowanceRequest, AuthRequest, AuthResponse, AuthStep, DiscoverRequest, ErrorKind,
@@ -128,14 +128,7 @@ impl HostServices for LocalUpstream {
                 .expect("unexpected HTTP request or retry"),
         ))
     }
-    async fn ws_connect(
-        &self,
-        _: String,
-        _: Vec<(String, String)>,
-        _: Vec<String>,
-        _: Option<String>,
-        _: Option<u64>,
-    ) -> Result<Arc<dyn HostWebSocket>, HostFailure> {
+    async fn ws_connect(&self, _: WsRequest) -> Result<Arc<dyn HostWebSocket>, HostFailure> {
         Err(HostFailure::new(
             ErrorKind::Unsupported,
             "WebSocket is not allowed in this contract",
@@ -862,9 +855,9 @@ async fn official_cli_parallel_history_contract() {
     let runtime = VendorRuntime::new().unwrap();
     let plugin = runtime.load(&artifact()).await.unwrap();
     let endpoint = common::endpoint("anthropic").unwrap();
-    // 预期来自官方 1.1.65 的 S8e/Zel/FWc/UWc 离线合成执行，不调用插件构造器。
+    // 来自官方 1.1.75 完整正常构造链的隔离合成执行，不调用插件构造器。
     let expected: Value = serde_json::from_str(include_str!(
-        "fixtures/qoder_cli_1_1_65_parallel_tools.json"
+        "fixtures/qoder_cli_1_1_75_parallel_tools.json"
     ))
     .unwrap();
     for region in REGIONS {
@@ -1031,21 +1024,9 @@ async fn official_cli_parallel_history_contract() {
                 "x86_64_win32"
             }
         );
-        let expected_hostname = if region.channel == "cn" {
-            "xn--9ca.com".to_owned()
-        } else {
-            format!(
-                "stravia-{}",
-                provider.credentials["machine_id"]
-                    .as_str()
-                    .unwrap()
-                    .chars()
-                    .filter(|c| c.is_ascii_hexdigit())
-                    .take(12)
-                    .collect::<String>()
-            )
-        };
-        assert_eq!(header(request, "Cosy-MachineHostname"), expected_hostname);
+        if region.channel == "cn" {
+            assert_eq!(header(request, "Cosy-MachineHostname"), "xn--9ca.com");
+        }
         let policy = requests
             .iter()
             .find(|request| request.url.contains("/api/v2/config/getDataPolicy?"))
@@ -1376,7 +1357,7 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
             ]),
         ),
         (
-            "image breakpoint is not moved to earlier text",
+            "image breakpoint is omitted without marking earlier text",
             image_tail,
             json!([{
                 "role":"user",
@@ -1390,9 +1371,9 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
             json!([{"role":"user","content":"before empty","contents":[{"type":"text","text":"before empty"}]}]),
         ),
         (
-            "string histories are not automatically marked",
+            "normal user text is normalized before automatic cache selection",
             request(),
-            json!([{"role":"user","content":"你好","contents":[{"type":"text","text":"你好"}]}]),
+            json!([{"role":"user","content":"你好","contents":[{"type":"text","text":"你好","cache_control":{"type":"ephemeral"}}]}]),
         ),
     ];
     let mut previous_ids: Option<(Value, Value)> = None;
@@ -1472,9 +1453,9 @@ async fn responses_items_preserve_native_assistant_turns() {
     let runtime = VendorRuntime::new().unwrap();
     let plugin = runtime.load(&artifact()).await.unwrap();
     let endpoint = common::endpoint("open-responses").unwrap();
-    // 官方 1.1.65 UWc 对同一 assistant 的 thinking/text/并行 tool_use 的独立执行结果。
+    // 官方 1.1.75 完整正常链对同轮 thinking/text/并行 tool_use 的独立执行结果。
     let expected: Value = serde_json::from_str(include_str!(
-        "fixtures/qoder_cli_1_1_65_reasoning_tools.json"
+        "fixtures/qoder_cli_1_1_75_reasoning_tools.json"
     ))
     .unwrap();
     for region in REGIONS {

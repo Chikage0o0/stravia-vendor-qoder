@@ -10,12 +10,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha256;
 use stravia_vendor_common::common;
-use stravia_vendor_sdk::{ErrorKind, HttpRequest, PluginError, ValidationIssue};
+use stravia_vendor_sdk::{
+    ErrorKind, GuestHost, HttpCompression, HttpContentCoding, HttpRequest, HttpResponse,
+    PluginError, ValidationIssue,
+};
 use zeroize::Zeroizing;
 
 use crate::Region;
 
-pub(crate) const CLI_VERSION: &str = "1.1.70";
+pub(crate) const CLI_VERSION: &str = "1.1.75";
 const MACHINE_OS_VALUES: [&str; 6] = [
     "x86_64_win32",
     "aarch64_win32",
@@ -168,12 +171,14 @@ pub(crate) fn add_client_headers(
     let hostname = if inference {
         let normalized = normalize_hostname(configured_hostname);
         Some(if normalized.is_empty() {
-            let suffix: String = machine_id
-                .chars()
-                .filter(|character| character.is_ascii_hexdigit())
-                .take(12)
-                .collect();
-            format!("stravia-{suffix}")
+            let digest = Sha256::digest(machine_id.as_bytes());
+            format!(
+                "DESKTOP-{:02X}{:02X}{:02X}{:X}",
+                digest[0],
+                digest[1],
+                digest[2],
+                digest[3] >> 4
+            )
         } else {
             normalized
         })
@@ -184,6 +189,8 @@ pub(crate) fn add_client_headers(
         !name.eq_ignore_ascii_case("Cosy-MachineOS")
             && !name.eq_ignore_ascii_case("Cosy-MachineHostname")
     });
+    add_default_header(headers, "Cosy-Version", CLI_VERSION);
+    add_default_header(headers, "Cosy-ClientType", "5");
     headers.push(("Cosy-MachineOS".into(), os.to_owned()));
     if let Some(hostname) = hostname {
         headers.push(("Cosy-MachineHostname".into(), hostname));
@@ -206,7 +213,7 @@ const BODY_INVERSE: [u8; 256] = {
     inverse
 };
 static PARSED_PUBLIC_KEY: OnceLock<Result<RsaPublicKey, ()>> = OnceLock::new();
-// 来自官方 Qoder CLI 1.1.65 发布包的公开互操作密钥。
+// 已核对官方 Qoder CLI 1.1.75 认证 WASM 的公开互操作密钥。
 const RUNTIME_PUBLIC_KEY: &str = "-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDA8iMH5c02LilrsERw9t6Pv5Nc\n4k6Pz1EaDicBMpdpxKduSZu5OANqUq8er4GM95omAGIOPOh+Nx0spthYA2BqGz+l\n6HRkPJ7S236FZz73In/KVuLnwI8JJ2CbuJap8kvheCCZpmAWpb/cPx/3Vr/J6I17\nXcW+ML9FoCI6AOvOzwIDAQAB\n-----END PUBLIC KEY-----";
 
 #[derive(Serialize, Deserialize)]
@@ -390,6 +397,46 @@ pub(crate) fn decode_server_response(raw: &[u8]) -> Result<Value, PluginError> {
     }
 }
 
+fn add_default_header(headers: &mut Vec<(String, String)>, name: &str, value: &str) {
+    if !headers
+        .iter()
+        .any(|(key, _)| key.eq_ignore_ascii_case(name))
+    {
+        headers.push((name.to_owned(), value.to_owned()));
+    }
+}
+
+pub(crate) fn start_http(
+    host: &GuestHost,
+    mut request: HttpRequest,
+) -> Result<HttpResponse, PluginError> {
+    // 官方正常发送链使用 bundled Undici Fetch；显式业务头优先于其默认值。
+    add_default_header(&mut request.headers, "Accept-Language", "*");
+    add_default_header(&mut request.headers, "Sec-Fetch-Mode", "cors");
+    add_default_header(&mut request.headers, "User-Agent", "undici");
+    let signed_get = request.method == "GET"
+        && request.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("Authorization") && value.starts_with("Bearer COSY.")
+        });
+    // 官方认证 GET 的签名器选择 identity；其他 Fetch 请求协商 gzip/deflate/br。
+    // HTTP 内容编码仍由宿主协商和流式解码，body_encode 是独立的应用层字节。
+    host.http_start_with_compression(
+        request,
+        HttpCompression {
+            request: None,
+            response: if signed_get {
+                Vec::new()
+            } else {
+                vec![
+                    HttpContentCoding::Br,
+                    HttpContentCoding::Gzip,
+                    HttpContentCoding::Deflate,
+                ]
+            },
+        },
+    )
+}
+
 pub(crate) fn prepare(
     region: Region,
     identity: &Identity,
@@ -547,13 +594,11 @@ fn prepare_at(
         // 原生 HTTP 不伪造 UMID，因此省略 WASM 默认生成的这两个头。
         if let Some(key) = model_key.filter(|key| !key.is_empty()) {
             headers.push(("X-Model-Key".into(), key.to_owned()));
-            headers.push((
-                "X-Model-Source".into(),
-                model_source.unwrap_or("").to_owned(),
-            ));
+            if let Some(source) = model_source {
+                headers.push(("X-Model-Source".into(), source.to_owned()));
+            }
         }
     } else {
-        headers.push(("Accept-Encoding".into(), "identity".into()));
         headers.push(("Cosy-ClientIp".into(), identity.machine_id.clone()));
         headers.push(("Cosy-MachineToken".into(), identity.machine_id.clone()));
         headers.push(("Cosy-MachineType".into(), "5".into()));

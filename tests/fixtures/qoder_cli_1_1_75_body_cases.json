@@ -1,0 +1,2751 @@
+{
+  "provenance": {
+    "package": "@qoder-ai/qodercli",
+    "version": "1.1.75",
+    "source": "bundle/qodercli.js",
+    "source_text_sha256": "1b5b17bb25bcd2e059a97e8bc1d4280e4c16fb4194b004463cd677c434536948",
+    "execution": "Isolated node:vm of verbatim selected declarations; bg -> u3e -> XQA -> HYi -> hVl/IVl. Synthetic catalog/items/options/environment only; no CLI bootstrap, account or network. Function selection fails closed outside reviewed normal-route branches. Final sender projection at source char 19468702 removes defaultReasoningEffort before JSON.stringify.",
+    "function_spans": [
+      {
+        "name": "HYi",
+        "char_offset": 19507838,
+        "sha256": "9aaf380d21a5dfe1da86765e9f315751aa2e20b9dc7b955cce7e91d807d2cee3"
+      },
+      {
+        "name": "Sft",
+        "char_offset": 23390922,
+        "sha256": "422203254605584284fe28925e4d48dbc71a97a665cf716b93ceb6ad221c2526"
+      },
+      {
+        "name": "Dft",
+        "char_offset": 23390952,
+        "sha256": "95bbca92f2da11e00917c0671c4fdc1c978a0ca7d5c43e6f2127bbb4c09c4735"
+      },
+      {
+        "name": "uVl",
+        "char_offset": 23391843,
+        "sha256": "2e197c3100e06f563fa1f3fba898db9b7d534dac30ec9c9538a6e72193638a73"
+      },
+      {
+        "name": "dVl",
+        "char_offset": 23392022,
+        "sha256": "6a5c16782f3250ee6ec2403426528a0b435ebdffbaf3de812ec5b5e4eefddc07"
+      },
+      {
+        "name": "hco",
+        "char_offset": 23392406,
+        "sha256": "fc9af72f9289bf9f48b735f1b7dfa680195656508228615908efdcaf9bf188c9"
+      },
+      {
+        "name": "gVl",
+        "char_offset": 23392581,
+        "sha256": "bf37bc28a5dca0561ed8f2b4e172c6f5c32163128fd2c09a0810d57dd8028ac5"
+      },
+      {
+        "name": "fVl",
+        "char_offset": 23392883,
+        "sha256": "e514cceecbd1097fa8ab6f4fa7621c1abeeb399ff5b3653fcb268467760e2dc1"
+      },
+      {
+        "name": "pVl",
+        "char_offset": 23393584,
+        "sha256": "15989d65db9ce176bb5dfc7bb9f44223beded0e4bb1bfa45f04e0b691c43e51a"
+      },
+      {
+        "name": "W1n",
+        "char_offset": 23393681,
+        "sha256": "16c48f4f8d7a94d3eb22367bcc6f96ad323b635da1757bea067385f2a76e319e"
+      },
+      {
+        "name": "Qco",
+        "char_offset": 23393775,
+        "sha256": "cda31f593416e01558686f90ca6890217a7dff2fb0fa49f0797ba8d2cd56f334"
+      },
+      {
+        "name": "mVl",
+        "char_offset": 23393843,
+        "sha256": "092dc87293d3a4b0f7c20b2cedb54b548fc15dabc88df251dc6ed0cdef716f89"
+      },
+      {
+        "name": "Cco",
+        "char_offset": 23394050,
+        "sha256": "875d5d27bbe6e01e985671a6e2494f83c0226a5c336266d433e607273f518feb"
+      },
+      {
+        "name": "wco",
+        "char_offset": 23394517,
+        "sha256": "5d0779c74822219b878c75676d29059836aa82db58643a8f1e609523fec0c0fd"
+      },
+      {
+        "name": "q1n",
+        "char_offset": 23394638,
+        "sha256": "124a48fbbbeceb48342d4206e9e2f584f6871545e8b8101be3de275015c66700"
+      },
+      {
+        "name": "EVl",
+        "char_offset": 23394715,
+        "sha256": "e7159cc1ed68b5ec9c7f656a05b3a8583f977aa2fffaeeb68f0acdc7ccce186f"
+      },
+      {
+        "name": "hVl",
+        "char_offset": 23395201,
+        "sha256": "3c48ac3a9fad7dcfcccd08be83992135602334f8139aca8a214d39ea381d0662"
+      },
+      {
+        "name": "V1n",
+        "char_offset": 23395943,
+        "sha256": "c314e992c4695382b85773a7c6a20ce21e909cc05b14722293f6eb24393a0703"
+      },
+      {
+        "name": "IVl",
+        "char_offset": 23395996,
+        "sha256": "acf73b72aa9306a0519ff41edad44acfc0d92783222b3f8d9324ab12dc695164"
+      },
+      {
+        "name": "XQA",
+        "char_offset": 23403960,
+        "sha256": "f20ed26bf6cadb96df1c5211ac048a3db71888ddbc15bb477bacf3e1b87979c7"
+      },
+      {
+        "name": "ift",
+        "char_offset": 23320739,
+        "sha256": "b022f3b3990a84ba16e4beffa6060288fee77b0afffc87fd8dbe485c9d241e2d"
+      },
+      {
+        "name": "hxe",
+        "char_offset": 19478613,
+        "sha256": "0be8e2774c95cba74e34a319f6b004a3f6fb01c6a5d81f8b1f19d93ba374828f"
+      },
+      {
+        "name": "Exe",
+        "char_offset": 19478502,
+        "sha256": "f9e13451c89c23364945fa1c4db32c5052e20122929b8b9104a722110af2ca47"
+      },
+      {
+        "name": "mF",
+        "char_offset": 19526881,
+        "sha256": "f4377673c00d19d4cb614e1ae9d5952fb54d69e3bd895f1aa2137457c1491cf6"
+      },
+      {
+        "name": "L1",
+        "char_offset": 19526995,
+        "sha256": "ba36278a3d159c893d88902cd2e7e0843bcc5820e69349e3ea988ed8dbd62427"
+      },
+      {
+        "name": "kK",
+        "char_offset": 19527032,
+        "sha256": "22891df3ff1dedfad57a09589f46352776b08420f2f0a0aefb76be480012e6c4"
+      },
+      {
+        "name": "bg",
+        "char_offset": 23397679,
+        "sha256": "056ddc7ca9a734c5489de6d0853ce28c6fc154daac80802b79d660fcc3a7ebd0"
+      },
+      {
+        "name": "OVl",
+        "char_offset": 23404142,
+        "sha256": "62578c34b8c26c34cea9c959ce6bd9251d808fba6a620aa68fdb758b492abbf5"
+      },
+      {
+        "name": "HVl",
+        "char_offset": 23404422,
+        "sha256": "25f8f7cfdf5b63ecff241d336888df972386db7ca2a1e2860157e017bd83d83d"
+      },
+      {
+        "name": "mco",
+        "char_offset": 23389366,
+        "sha256": "43e997c2ebdc6cc315542013b76663b5e94df087b7f9c0c0b0f0e36e50a997d5"
+      },
+      {
+        "name": "iVl",
+        "char_offset": 23390048,
+        "sha256": "8bf3b158929a5d62eab215a990b1ff46419b959af1b738effe155a31b2a90e1d"
+      },
+      {
+        "name": "oVl",
+        "char_offset": 23390234,
+        "sha256": "38659247fca9db8648b6b73d9fe5af8cf102c6f6d32ad2b8944b105942f8c5f6"
+      },
+      {
+        "name": "sVl",
+        "char_offset": 23390400,
+        "sha256": "f7c5f38a426513f5ca3aeed1c45811488412871d4d2fdfeeea4650664ab5c123"
+      },
+      {
+        "name": "j1n",
+        "char_offset": 23390561,
+        "sha256": "a4b1f78f7037818321cbd57898f9ada99d2d9314018f869393e13a5aec80994c"
+      },
+      {
+        "name": "aVl",
+        "char_offset": 23390685,
+        "sha256": "c1825fef54ef2ddc8934dd7fd2dcab24c4816d07d758b3102f1f7b2ac4421c38"
+      },
+      {
+        "name": "wVl",
+        "char_offset": 23398010,
+        "sha256": "ce2ace6ad2069bcfe8c9fc78afc4b92c46064f0821f9143d471a1babad4c3df0"
+      },
+      {
+        "name": "CVl",
+        "char_offset": 23397855,
+        "sha256": "b6a25d8aafb4708036e0bb0be1f3040bc6e03cf887871ed688ad32a6c4c6d5d1"
+      },
+      {
+        "name": "SVl",
+        "char_offset": 23398975,
+        "sha256": "f69594133449b2991422bc4147b6b8b36caa8a02ef4876fa32d7536f7e3ef233"
+      },
+      {
+        "name": "Ico",
+        "char_offset": 23399047,
+        "sha256": "ede77e6ee1564aef6880dcc00926de5a33eb112cf5f492377c287dffc58f1b55"
+      },
+      {
+        "name": "Sco",
+        "char_offset": 23399163,
+        "sha256": "24e6ede04f4e3745e99b64d7425f402a29ac065ac8d58c076dcd08e6779ba510"
+      },
+      {
+        "name": "Dco",
+        "char_offset": 23399220,
+        "sha256": "6f48ecd4be805048ce2933d35ba33fd4632572dcb4005c1cf80ca9f3de628b34"
+      },
+      {
+        "name": "yco",
+        "char_offset": 23399259,
+        "sha256": "d63675e742419f3a29985efda14f4cffeacdebf24080734ae7bbc9ad2cbeb9df"
+      },
+      {
+        "name": "DVl",
+        "char_offset": 23399710,
+        "sha256": "018f70759788717d9df0d48650885af612d9770453fe41613862f10255a13048"
+      },
+      {
+        "name": "yVl",
+        "char_offset": 23399851,
+        "sha256": "9db96a1e1601737b535f6c10733a8fdcb20e1c35a1f638e48a727a5c76e850ac"
+      },
+      {
+        "name": "xVl",
+        "char_offset": 23399957,
+        "sha256": "222c03e9ccbacd2193bb191af64c7d595b7bcb5b177cb453fafb4254f26c5104"
+      },
+      {
+        "name": "PVl",
+        "char_offset": 23400127,
+        "sha256": "3c9ae1ab032c8a1f626d3ad5a4292c9ddf1f87b5bb23559aacff7ea1bf7dfb48"
+      },
+      {
+        "name": "kVl",
+        "char_offset": 23400465,
+        "sha256": "b3b2699b1f8dda1c15f8275d5f7ca2a4824fd91399c3335707036644e2975174"
+      },
+      {
+        "name": "RVl",
+        "char_offset": 23400569,
+        "sha256": "4b7694a39e90a68905ecd8868f4d23d6a60050221a6b3d9d9641c54e5d945825"
+      },
+      {
+        "name": "TVl",
+        "char_offset": 23401037,
+        "sha256": "45c100c5127f65fbfb172ff2e60d4762487809410ddfc8f9fc9dc3cf3b97da8a"
+      },
+      {
+        "name": "bVl",
+        "char_offset": 23401830,
+        "sha256": "c301028ed1b0dd3f84bda68fb4219c58e3a93458275579f678da32d4e564aa24"
+      },
+      {
+        "name": "MVl",
+        "char_offset": 23401948,
+        "sha256": "732be0631b240f4df558508d241190c970d4bf4360143fae46b5bed6be78afe6"
+      },
+      {
+        "name": "vVl",
+        "char_offset": 23402334,
+        "sha256": "541bac9381c5099be36d30ecc9ead3d70a2ada2dd14300646197e17140a1b328"
+      },
+      {
+        "name": "FVl",
+        "char_offset": 23402930,
+        "sha256": "d96eb8554c508552fb7e9f169451f5ba2b88d04390d243f0d62a684810a8cea8"
+      },
+      {
+        "name": "UVl",
+        "char_offset": 23403472,
+        "sha256": "91082795abfd8eee09667c6a605f75a6de97f07499073ffe2f6cbdce4818beec"
+      },
+      {
+        "name": "NVl",
+        "char_offset": 23403695,
+        "sha256": "c368ee1f24aef2091e3c5401f7e757a3cc1c4684b357bc82da89b5505bb9e62d"
+      },
+      {
+        "name": "xco",
+        "char_offset": 23404575,
+        "sha256": "076f5a80fc08c6a34369499b7745f38ddfda5e2dc5c1c6324df1b211740189a8"
+      },
+      {
+        "name": "Pco",
+        "char_offset": 23404613,
+        "sha256": "e302792ddf67a3c133b4a7a170d2577792f30983cccc6bca2885b11b290e5eb9"
+      },
+      {
+        "name": "kco",
+        "char_offset": 23404704,
+        "sha256": "58564421195544d5ca31df21ef1f2d1ca3e3e7aa90aefd0c95c50f3b66cf940c"
+      },
+      {
+        "name": "JVl",
+        "char_offset": 23404794,
+        "sha256": "0a289a085bd32daa285067b7100a08e1ff7a343922cd30b317911a1986893d62"
+      },
+      {
+        "name": "GVl",
+        "char_offset": 23405045,
+        "sha256": "32bce7bdecd379e2bf95cfb670d1665f92af1f9eef8c84cd243d69994654ede3"
+      },
+      {
+        "name": "YVl",
+        "char_offset": 23405134,
+        "sha256": "88fad9c321f7ede3be95c81bfed2c76426a7fcf77a54cea8fc65e99f5514d306"
+      },
+      {
+        "name": "jVl",
+        "char_offset": 23405186,
+        "sha256": "fd7c82f63c889efd87e496cb73989ca330b6d67b673c7b174c056efd61ab80aa"
+      },
+      {
+        "name": "VVl",
+        "char_offset": 23405254,
+        "sha256": "51b59569c180da9eac4370b58a4577c5deb22d0c7ec60e12d5da8c495d1603b4"
+      },
+      {
+        "name": "Rco",
+        "char_offset": 23405365,
+        "sha256": "3cbf94639e976a27fa611435b04b75a63475b99c28746d9292a73c75ddd1a77a"
+      },
+      {
+        "name": "Bco",
+        "char_offset": 23405510,
+        "sha256": "20371d3d6756dbefc2ca2c03882fe991ddfcf3e2ce1f8c795a22e84a23fccd69"
+      },
+      {
+        "name": "qVl",
+        "char_offset": 23405617,
+        "sha256": "b3e27c0ffde16c98ce4efba508014c0fe6116ab60ab695d09a2c8ebd13e8f852"
+      },
+      {
+        "name": "jfe",
+        "char_offset": 23622247,
+        "sha256": "f3da4b8eca05110e738b978c26363fa0791bb324f79c132d2c26a79f4a439f17"
+      },
+      {
+        "name": "u3e",
+        "char_offset": 23623023,
+        "sha256": "0fbabcc77eaad939fe0417ff04839f5a432f814f125acdf2ea13d29443059992"
+      },
+      {
+        "name": "BKl",
+        "char_offset": 23625582,
+        "sha256": "62e9657d3bdbb413b7f9f0cf6e1058b2fbaebe710fe360ce5c3b6367031b9d82"
+      },
+      {
+        "name": "IKl",
+        "char_offset": 23625500,
+        "sha256": "efb6c2cb80a3423cf21ee3149f90a442e5922ae7bc2da383171af9832b1faaa6"
+      },
+      {
+        "name": "hKl",
+        "char_offset": 23622977,
+        "sha256": "7adac63fe406cdcf9d188e360438a6b5e1f73b0590d8a1e386238687460969f2"
+      },
+      {
+        "name": "CKl",
+        "char_offset": 23627274,
+        "sha256": "8406215153b216b15ae82e985057d08f0d5ecba33e42fb8d0f5f911d9f92783f"
+      },
+      {
+        "name": "wKl",
+        "char_offset": 23627408,
+        "sha256": "fdce46a63014bb43d2f639106b76735609c73f0fc02886c44859a05d9d5d87eb"
+      },
+      {
+        "name": "KT",
+        "char_offset": 19407970,
+        "sha256": "a722c9805695db5062386ceb63ccfd4cbe48ff4aa4f8255dbf053d31505e2f1b"
+      },
+      {
+        "name": "n2e",
+        "char_offset": 19506883,
+        "sha256": "a71cf9b25b571113919b3a9a5568deec51092ceb9fa0bc820cb62141581b1e15"
+      },
+      {
+        "name": "PK",
+        "char_offset": 19507011,
+        "sha256": "4adc99b8246f1f97fe173633db52a5c5009dc32b99d0df99d150616ed5f361e4"
+      },
+      {
+        "name": "Yc",
+        "char_offset": 841543,
+        "sha256": "e263a329d9da93c3f899d7d2e3fb089f6494685614bd76143a35241a41a86ae3"
+      },
+      {
+        "name": "htt",
+        "char_offset": 19008459,
+        "sha256": "59bbe265a1d2b450e3bcfeb1f72a14c8afb4bbfa539ec2dcc50431860fd1009e"
+      },
+      {
+        "name": "e1i",
+        "char_offset": 19007866,
+        "sha256": "d895e1a4591ef7f775bc7a1c12ca302d665d00710223ef1d0eb30ed418ad912f"
+      },
+      {
+        "name": "YT",
+        "char_offset": 19005788,
+        "sha256": "747b560b1ce071b87fe5d2e6f359121c57c3b6fd782ae8da91f11c128283a209"
+      },
+      {
+        "name": "Zee",
+        "char_offset": 19005183,
+        "sha256": "dbd94a540136027fe44705162e722c0fdb3f9cc4dd4d527de5b382fc1774a55d"
+      },
+      {
+        "name": "_$c",
+        "char_offset": 19005586,
+        "sha256": "216b27e765f63f8cbb3135bef448dc2888834a96200c099454dca3ca821b422b"
+      },
+      {
+        "name": "Si",
+        "char_offset": 19002335,
+        "sha256": "b009592596cbff1233f967173034a0a11f621e59ab5053c8d66a75ff2c7e39d5"
+      },
+      {
+        "name": "OQ",
+        "char_offset": 19000928,
+        "sha256": "95f43d0eb86268059a43490c498068090314c73451470f6057df3516c04e953b"
+      },
+      {
+        "name": "Kee",
+        "char_offset": 19002164,
+        "sha256": "6c76504e8300ab1133426eeb4759133cd9654479c9759236e4b35e63763eba2b"
+      },
+      {
+        "name": "z$c",
+        "char_offset": 19005035,
+        "sha256": "60423fb6cbfc7017086b43c5de24fb72125405c750316b6d6cc96d2e7c8fdef8"
+      },
+      {
+        "name": "ptt",
+        "char_offset": 19005102,
+        "sha256": "138ef78953c54925ac801964447ebf5d699432eb1e913232b1f1e832d3761bfa"
+      },
+      {
+        "name": "xi",
+        "char_offset": 19001186,
+        "sha256": "6cc4579278a4470de098855e357f63d8659774b3e80f98155ec62a140e8974f1"
+      },
+      {
+        "name": "qee",
+        "char_offset": 19001656,
+        "sha256": "b334f613e059e94601014511ab648b9c61a38202f77c0028291aa8b4b0715314"
+      },
+      {
+        "name": "J8e",
+        "char_offset": 19006193,
+        "sha256": "a51181f4b864dca744ecff91f79c0e0b9dc1723610b97488b26d1f5869e1f439"
+      },
+      {
+        "name": "_rt",
+        "char_offset": 19420860,
+        "sha256": "a9f5628f63253d7084a0ac2915ae7a75c51190f2cf169db6798c075abff845a6"
+      },
+      {
+        "name": "$rt",
+        "char_offset": 19421014,
+        "sha256": "01ac4d9642c12ff3dcac453cd524ae0f7093f7cfdc55a7c22c095e09089907a8"
+      },
+      {
+        "name": "Kue",
+        "char_offset": 19004153,
+        "sha256": "f65711c3bb81ff15a044b7ee1a8f6bacc03981598da9f6f146a5f827a8624af9"
+      },
+      {
+        "name": "GT",
+        "char_offset": 19004017,
+        "sha256": "c175e0269093b0eee9ce6383e9bb52e4acc8a3508804e2234c78f441987075e2"
+      },
+      {
+        "name": "QDn",
+        "char_offset": 19002961,
+        "sha256": "95c255ca19e2e1d8c74aeb596918ecffda969d47058eb25b7bbcc43c15d7eee3"
+      },
+      {
+        "name": "X9i",
+        "char_offset": 19003221,
+        "sha256": "8e20895da200af5b4de1f4173849e7c26fad35894fdfd565b4a6e5204d3a9adf"
+      },
+      {
+        "name": "IDn",
+        "char_offset": 19003073,
+        "sha256": "baab6b94f68042de09a008ea5b1512d862fc66697b57d8074f8f181e270d1c5d"
+      },
+      {
+        "name": "qpA",
+        "char_offset": 19002587,
+        "sha256": "46af23f2354b03109677bb2d86ea266e032be623ce3527c36efacefacee68407"
+      },
+      {
+        "name": "Z$c",
+        "char_offset": 19003000,
+        "sha256": "692e5ccbd222753b1fb40c00056db131cbec971ac8b711e736bba3b54f0f7f52"
+      },
+      {
+        "name": "Ag",
+        "char_offset": 13317,
+        "sha256": "e255adf2937bbfa71127e9b5c91ffe2bfe0e867ffa3ab20cf1563c7b4fff1c66"
+      }
+    ],
+    "final_send_projection": {
+      "char_offset": 19468702,
+      "source": "defaultReasoningEffort:I,...h}=A,w=JSON.stringify(h)"
+    }
+  },
+  "fixed_options": {
+    "requestId": "00000000-0000-4000-8000-000000000001",
+    "requestSetId": "00000000-0000-4000-8000-000000000002",
+    "business": {
+      "product": "cli",
+      "version": "1.1.75",
+      "type": "agent",
+      "id": "00000000-0000-4000-8000-000000000003",
+      "name": "synthetic",
+      "begin_at": 1,
+      "stage": "start"
+    }
+  },
+  "cases": [
+    {
+      "name": "string",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "hello"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "hello",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "hello"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello",
+            "contents": [
+              {
+                "type": "text",
+                "text": "hello",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "image_url_tail",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "before image"
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "url": "https://example.invalid/image.png"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": ""
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "before image"
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "https://example.invalid/image.png"
+                }
+              }
+            ],
+            "contents": [
+              {
+                "type": "text",
+                "text": "before image"
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "https://example.invalid/image.png"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "image_data_url",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "url": "data:image/png;base64,c3ludGhldGlj"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": ""
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,c3ludGhldGlj"
+                }
+              }
+            ],
+            "contents": [
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,c3ludGhldGlj"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "image_base64_jpg",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "JPG",
+                  "data": "c3ludGhldGlj"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": ""
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/jpeg;base64,c3ludGhldGlj"
+                }
+              }
+            ],
+            "contents": [
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/jpeg;base64,c3ludGhldGlj"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "image_svg",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "url": "https://example.invalid/image.svg?synthetic=1"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "[Unsupported image omitted: image/svg+xml. Supported formats are PNG, JPEG, GIF, and WebP.]",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "[Unsupported image omitted: image/svg+xml. Supported formats are PNG, JPEG, GIF, and WebP.]"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "[Unsupported image omitted: image/svg+xml. Supported formats are PNG, JPEG, GIF, and WebP.]",
+            "contents": [
+              {
+                "type": "text",
+                "text": "[Unsupported image omitted: image/svg+xml. Supported formats are PNG, JPEG, GIF, and WebP.]",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "image_unsupported_model",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "url": "https://example.invalid/image.png"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": false,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "[Image omitted: the current model does not support image input. Ask the user to switch to a vision-capable model if the image content is needed.]",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "[Image omitted: the current model does not support image input. Ask the user to switch to a vision-capable model if the image content is needed.]"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": false,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "[Image omitted: the current model does not support image input. Ask the user to switch to a vision-capable model if the image content is needed.]",
+            "contents": [
+              {
+                "type": "text",
+                "text": "[Image omitted: the current model does not support image input. Ask the user to switch to a vision-capable model if the image content is needed.]"
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "empty_text_tail",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "before empty"
+              },
+              {
+                "type": "text",
+                "text": ""
+              }
+            ]
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "before empty",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "before empty"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "before empty",
+            "contents": [
+              {
+                "type": "text",
+                "text": "before empty"
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "empty_user",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": ""
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": ""
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "explicit_cache",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "explicit",
+                "cache_control": {
+                  "type": "ephemeral",
+                  "ttl": "1h"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "assistant",
+          "uuid": "synthetic-turn",
+          "message": {
+            "role": "assistant",
+            "id": "synthetic-turn",
+            "content": [
+              {
+                "type": "text",
+                "text": "final"
+              }
+            ]
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "explicit",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "explicit"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "explicit",
+            "contents": [
+              {
+                "type": "text",
+                "text": "explicit",
+                "cache_control": {
+                  "type": "ephemeral",
+                  "ttl": "1h"
+                }
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "final",
+            "contents": [
+              {
+                "type": "text",
+                "text": "final",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "zero_false",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "hello"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {
+        "generation": {
+          "temperature": 0,
+          "topP": 0,
+          "topK": 0,
+          "maxTokens": 0,
+          "reasoning": {
+            "enabled": false,
+            "preserve": false
+          }
+        }
+      },
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "hello",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "hello"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello",
+            "contents": [
+              {
+                "type": "text",
+                "text": "hello",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "temperature": 0,
+          "top_p": 0,
+          "reasoning_effort": "none",
+          "enable_thinking": false,
+          "preserve_thinking": false,
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "thinking_budget",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "hello"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {
+        "generation": {
+          "reasoning": {
+            "budgetTokens": 1024
+          }
+        }
+      },
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "hello",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "hello"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello",
+            "contents": [
+              {
+                "type": "text",
+                "text": "hello",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "reasoning_effort": "low",
+          "enable_thinking": true,
+          "reasoning_budget_tokens": 1024,
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "default_effort",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "hello"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": true,
+        "max_output_tokens": 16384,
+        "default_effort": "medium"
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "hello",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": true
+            },
+            "originalContent": "hello"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": true,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello",
+            "contents": [
+              {
+                "type": "text",
+                "text": "hello",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384,
+          "reasoning_effort": "medium",
+          "enable_thinking": true
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "top_effort",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "hello"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": true,
+        "max_output_tokens": 16384
+      },
+      "options": {
+        "reasoningEffort": "medium"
+      },
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "hello",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": true
+            },
+            "originalContent": "hello"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": true,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello",
+            "contents": [
+              {
+                "type": "text",
+                "text": "hello",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384,
+          "reasoning_effort": "medium",
+          "enable_thinking": true
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "top_budget",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "hello"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": true,
+        "max_output_tokens": 16384
+      },
+      "options": {
+        "thinkingBudget": 1024
+      },
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "hello",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": true
+            },
+            "originalContent": "hello"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": true,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello",
+            "contents": [
+              {
+                "type": "text",
+                "text": "hello",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384,
+          "reasoning_effort": "low",
+          "enable_thinking": true,
+          "reasoning_budget_tokens": 1024
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "top_budget_zero",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "hello"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": true,
+        "max_output_tokens": 16384
+      },
+      "options": {
+        "thinkingBudget": 0
+      },
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "hello",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "hello"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello",
+            "contents": [
+              {
+                "type": "text",
+                "text": "hello",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384,
+          "reasoning_effort": "none",
+          "enable_thinking": false
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "tool_choice_none",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "hello"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": true,
+        "max_output_tokens": 16384
+      },
+      "options": {
+        "toolChoice": "none"
+      },
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "hello",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": true
+            },
+            "originalContent": "hello"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": true,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello",
+            "contents": [
+              {
+                "type": "text",
+                "text": "hello",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384,
+          "tool_choice": "none"
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "effort_unsupported",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "hello"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": true,
+        "max_output_tokens": 16384,
+        "efforts": [
+          "low"
+        ]
+      },
+      "options": {
+        "reasoningEffort": "high"
+      },
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "hello",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": true
+            },
+            "originalContent": "hello"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": true,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello",
+            "contents": [
+              {
+                "type": "text",
+                "text": "hello",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "adjacent_users",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-first",
+          "message": {
+            "role": "user",
+            "content": "first"
+          }
+        },
+        {
+          "type": "user",
+          "uuid": "synthetic-second",
+          "message": {
+            "role": "user",
+            "content": "second"
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "first\n\nsecond",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "first\n\nsecond"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "first\n\nsecond",
+            "contents": [
+              {
+                "type": "text",
+                "text": "first\n"
+              },
+              {
+                "type": "text",
+                "text": "second",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "error_tool_images",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "question"
+          }
+        },
+        {
+          "type": "assistant",
+          "uuid": "synthetic-turn",
+          "message": {
+            "role": "assistant",
+            "id": "synthetic-turn",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "call_error",
+                "name": "echo",
+                "input": {}
+              }
+            ]
+          }
+        },
+        {
+          "type": "user",
+          "uuid": "synthetic-result",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "call_error",
+                "is_error": true,
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "first"
+                  },
+                  {
+                    "type": "image",
+                    "source": {
+                      "type": "url",
+                      "url": "https://example.invalid/error.png"
+                    }
+                  },
+                  {
+                    "type": "text",
+                    "text": "second"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {},
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "question",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "question"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "question",
+            "contents": [
+              {
+                "type": "text",
+                "text": "question"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "call_error",
+                "type": "function",
+                "index": 0,
+                "function": {
+                  "name": "echo",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "first\n\nsecond",
+            "tool_call_id": "call_error",
+            "is_error": true
+          }
+        ],
+        "tools": [],
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    },
+    {
+      "name": "reasoning_parallel",
+      "native_items": [
+        {
+          "type": "user",
+          "uuid": "synthetic-user",
+          "message": {
+            "role": "user",
+            "content": "synthetic question"
+          }
+        },
+        {
+          "type": "assistant",
+          "uuid": "synthetic-turn",
+          "message": {
+            "role": "assistant",
+            "id": "synthetic-turn",
+            "content": [
+              {
+                "type": "thinking",
+                "thinking": "Need both files.",
+                "signature": ""
+              },
+              {
+                "type": "text",
+                "text": "Checking."
+              },
+              {
+                "type": "tool_use",
+                "id": "call_a",
+                "name": "echo",
+                "input": {
+                  "value": "alpha"
+                }
+              },
+              {
+                "type": "tool_use",
+                "id": "call_b",
+                "name": "echo",
+                "input": {
+                  "value": "beta"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "user",
+          "uuid": "synthetic-results",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "call_b",
+                "content": "beta"
+              },
+              {
+                "type": "tool_result",
+                "tool_use_id": "call_a",
+                "content": "alpha"
+              }
+            ]
+          }
+        }
+      ],
+      "model": {
+        "key": "qfmodel",
+        "display_name": "Synthetic Flash",
+        "source": "system",
+        "is_vl": true,
+        "is_reasoning": false,
+        "max_output_tokens": 16384
+      },
+      "options": {
+        "reasoningEffort": "medium",
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "description": "Synthetic echo",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "request_id": "00000000-0000-4000-8000-000000000001",
+        "request_set_id": "00000000-0000-4000-8000-000000000002",
+        "chat_record_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "synthetic-session",
+        "stream": true,
+        "chat_task": "FREE_INPUT",
+        "chat_context": {
+          "text": "synthetic question",
+          "features": [],
+          "extra": {
+            "context": [],
+            "modelConfig": {
+              "key": "qfmodel",
+              "is_reasoning": false
+            },
+            "originalContent": "synthetic question"
+          },
+          "chatPrompt": "",
+          "imageUrls": null
+        },
+        "is_reply": true,
+        "is_retry": false,
+        "source": 1,
+        "version": "3",
+        "agent_id": "agent_common",
+        "task_id": "common",
+        "session_type": "qodercli",
+        "aliyun_user_type": "",
+        "model_config": {
+          "key": "qfmodel",
+          "display_name": "Synthetic Flash",
+          "model": "",
+          "format": "openai",
+          "is_vl": true,
+          "is_reasoning": false,
+          "api_key": "",
+          "url": "",
+          "source": "system",
+          "max_input_tokens": 200000
+        },
+        "system": [],
+        "messages": [
+          {
+            "role": "user",
+            "content": "synthetic question",
+            "contents": [
+              {
+                "type": "text",
+                "text": "synthetic question"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "Checking.",
+            "contents": [
+              {
+                "type": "text",
+                "text": "Checking."
+              }
+            ],
+            "reasoning_content": "Need both files.",
+            "reasoning_item": {
+              "type": "reasoning",
+              "summary": [
+                {
+                  "text": "Need both files.",
+                  "type": "summary_text"
+                }
+              ]
+            },
+            "tool_calls": [
+              {
+                "id": "call_a",
+                "type": "function",
+                "index": 0,
+                "function": {
+                  "name": "echo",
+                  "arguments": "{\"value\":\"alpha\"}"
+                }
+              },
+              {
+                "id": "call_b",
+                "type": "function",
+                "index": 1,
+                "function": {
+                  "name": "echo",
+                  "arguments": "{\"value\":\"beta\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "beta",
+            "tool_call_id": "call_b"
+          },
+          {
+            "role": "tool",
+            "content": "alpha",
+            "tool_call_id": "call_a"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "description": "Synthetic echo",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "parameters": {
+          "max_tokens": 16384,
+          "reasoning_effort": "medium",
+          "enable_thinking": true
+        },
+        "business": {
+          "product": "cli",
+          "version": "1.1.75",
+          "type": "agent",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "synthetic",
+          "begin_at": 1,
+          "stage": "start"
+        }
+      }
+    }
+  ]
+}

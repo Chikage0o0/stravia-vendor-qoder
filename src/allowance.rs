@@ -1,4 +1,4 @@
-use crate::{Region, auth};
+use crate::{Region, auth, protocol};
 use rust_decimal::Decimal;
 use serde_json::Value;
 use stravia_vendor_common::common;
@@ -21,15 +21,20 @@ pub(crate) fn execute(
     region: Region,
 ) -> Result<AllowanceResponse, PluginError> {
     let token = auth::oauth_token(provider, region)?;
-    let response = host.http_start(HttpRequest {
-        method: "GET".into(),
-        url: format!("{}/api/v2/quota/usage", region.openapi_origin()),
-        headers: vec![
-            ("Accept".into(), "application/json".into()),
-            ("Authorization".into(), format!("Bearer {token}")),
-        ],
-        body: Vec::new(),
-    })?;
+    let mut headers = vec![
+        ("Accept".into(), "application/json".into()),
+        ("Authorization".into(), format!("Bearer {token}")),
+    ];
+    protocol::add_client_headers(&mut headers, &provider.options, "", false)?;
+    let response = protocol::start_http(
+        host,
+        HttpRequest {
+            method: "GET".into(),
+            url: format!("{}/api/v2/quota/usage", region.openapi_origin()),
+            headers,
+            body: Vec::new(),
+        },
+    )?;
     let status = response.status()?;
     let headers = response.headers()?;
     let bytes = read_http_body(&response, 2 * 1024 * 1024)?;

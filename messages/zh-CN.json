@@ -16,7 +16,7 @@
   "machine_os_macos_x64": "macOS x64",
   "machine_os_macos_arm64": "macOS ARM64",
   "machine_hostname": "客户端主机名",
-  "machine_hostname_description": "可选，按官方 CLI 规则规范化后发送给 Qoder。留空使用由本次连接机器 ID 派生的稳定 stravia- 名称，不读取真实主机名。",
+  "machine_hostname_description": "可选，按官方 CLI 规则规范化后发送给 Qoder。留空使用由连接机器 ID 派生的稳定虚拟主机名，无插件专属前缀，不读取真实主机名。",
   "invalid_machine_os": "客户端机器平台必须为列表中的 OS 和架构组合。",
   "invalid_machine_hostname": "客户端主机名必须为不含换行的文本，最长 4096 字节。"
 }

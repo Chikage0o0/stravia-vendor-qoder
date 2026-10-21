@@ -50,9 +50,9 @@ API Key:  由 Stravia 访问控制配置决定
 |---|---|
 | `model_ids` | 可选，每行一个远端模型 ID。填写后仅同步目录中匹配的模型，留空时同步账号的可用 `assistant` 场景目录。不会从输入配置凭空生成模型。 |
 | `machine_os` | 配置的客户端平台枚举：`x86_64_win32`、`aarch64_win32`、`x86_64_linux`、`aarch64_linux`、`x86_64_darwin`、`aarch64_darwin`。默认 `x86_64_win32`，不是自动探测结果。 |
-| `machine_hostname` | 可选客户端名称。留空时使用 `stravia-` 加持久化机器 UUID 的前 12 个十六进制字符。自定义值按 CLI 的 ASCII / IDNA / 哈希规则规范化，出站最长 96 个 ASCII 字符；拒绝非字符串、CR/LF 和超过 4096 UTF-8 字节的输入。 |
+| `machine_hostname` | 可选客户端名称。留空时使用 `DESKTOP-` 加持久化机器 UUID 的 SHA-256 前 7 位大写十六进制字符。自定义值按 CLI 的 ASCII / IDNA / 哈希规则规范化，出站最长 96 个 ASCII 字符；拒绝非字符串、CR/LF 和超过 4096 UTF-8 字节的输入。 |
 
-这些字段是可覆盖的客户端身份，不是实际硬件信息。签名的模型目录、数据政策和推理请求带 `Cosy-MachineOS`，仅推理请求带 `Cosy-MachineHostname`。插件不读取宿主 hostname、MAC 或架构，不把 UUID 伪装成真实 UMID，也不虚构 `Cosy-MachineToken` / `Cosy-MachineType`。
+这些字段是可覆盖的合成客户端身份，不是实际硬件信息。签名的模型目录、数据政策和推理请求带 `Cosy-MachineOS`，仅推理请求带 `Cosy-MachineHostname`。插件不读取真实 hostname、MAC、机器 ID 或架构，也不生成真实 UMID。无 UMID 的推理请求省略 `Cosy-MachineToken` / `Cosy-MachineType`；模型目录和政策签名 GET 则保留官方回退语义：机器 UUID 用作 `Cosy-MachineToken` / `Cosy-ClientIp`，`Cosy-MachineType` 为 `5`。这不是采集到的硬件令牌或 IP。
 
 模型发现不发起推理，也不根据余额猜测模型是否免费。宿主提供的管理员静态模型 ID 列表可覆盖远端发现；该列表只接受字符串 ID，相关可用性仍由上游决定。
 
@@ -60,55 +60,58 @@ API Key:  由 Stravia 访问控制配置决定
 
 每次 canonical Infer 创建一个原生请求组：`request_id` / `chat_record_id` 共用一枚 UUID，`request_set_id` 使用另一枚独立 UUID。每次推理还创建独立的 `business` 上下文，包含 CLI 产品/协议版本、`agent` 类型、独立 UUID、开始时间和 `start` 阶段。标题取当前提示的有效 Unicode 前缀，最长 10 个 UTF-16 单元，不生成半个代理对。该对象是上游业务路由所需的请求组成部分，不是可随意省略的日志字段；插件不额外调用业务上报服务。
 
-推理直接投影 canonical IR，不再借用会拆分和重排并行历史的 OpenAI 编码器。工具结果错误标记仅在输入 IR 中存在时保留；若入口 codec 已丢弃标记，插件无法从原始客户端 wire 恢复。白名单外的请求选项静默忽略，不发送、不告警，也不因为这些选项拒绝推理；非法凭据、区域、配置和无法表达的实际消息内容仍明确报错。
+推理直接投影 canonical IR，不再借用会拆分和重排并行历史的 OpenAI 编码器。工具结果错误标记和显式缓存提示仅在输入 IR 中存在时保留；若入口 codec 已丢弃标记或将带提示的文本块折叠为字符串，插件无法恢复原始客户端 wire 信息。白名单外的请求选项静默忽略，不发送、不告警，也不因为这些选项拒绝推理；非法凭据、区域、配置和无法表达的实际消息内容仍明确报错。
 
 ### 请求白名单
 
-依据官方 CLI `1.1.65` 发布包中的 `yci` / `s3A` / `S8e` / `Zel` / `FWc` / `UWc` / `vWc` / `MWc` 构造器逐字段生成请求，不把入口请求或模型目录对象整体复制到上游：
+依据官方 CLI `1.1.75` 的完整正常链 `bg → u3e/BKl → XQA → Sft → HYi → hVl/IVl → E6n → sendRemoteChatAsk` 逐字段生成请求，不把入口请求或模型目录对象整体复制到上游：
 
 - `parameters` 仅允许 `temperature`、`top_p`、`top_k`、`max_tokens`、`reasoning_effort`、`enable_thinking`、`reasoning_budget_tokens`、`preserve_thinking`、`context_length`、`tool_choice`。许可不代表当前 canonical IR 能表达每一项；现有入口映射 generation、reasoning、Anthropic `top_k` 和工具选择，保留既有输出上限及思考开关规则。
 - `seed`、`stop`、`presence_penalty`、`frequency_penalty`、`response_format`、并行工具控制、其他协议扩展及工具声明的 `strict` / `cache_control` / `meta` 静默忽略。工具参数 JSON Schema、调用参数和 JSON 工具结果属于用户负载，不按字段名递归过滤；例如 schema 中名为 `seed` 的属性仍完整保留。
-- 文本内容缓存标记仅发送 CLI 的 `cache_control: {"type":"ephemeral"}`，不发送 canonical 的 `ttl` / `breakpoint_priority`。同时遵循官方正常推理的自动断点规则，见下文。工具结果文本仅投影 `type` / `text`，图片仅投影 `type` / `image_url.url`，不复制额外字段。
+- 文本缓存断点映射为 CLI 的 `cache_control`；非自动尾断点的显式一小时提示保留 `ttl: "1h"`，自动尾断点覆盖为无 TTL 的 `{"type":"ephemeral"}`。不发送 canonical 的 `breakpoint_priority`。工具结果文本仅投影 `type` / `text`，图片仅投影 `type` / `image_url.url`，不复制额外字段。
+- 思考激活遵循 SDK 的 `mode → level → budget_tokens` 优先级；显式禁用不会被预算重新启用，全部未指定时保留目录默认。档位先按模型支持列表筛选，不为被丢弃的档位额外发送激活参数。`temperature` / `top_p` 的零值保留，`top_k=0` 省略。
 - 所有客户端请求头静默忽略，包括与原生签名、身份、模型头同名的头。出站头只由协议构造器、已验证凭据及配置的客户端身份生成；不会让客户端覆盖 `Authorization` 或 `Cosy-*`。
 
 签名推理请求的显式请求头集合为：
 
 | 类别 | 请求头 |
 |---|---|
-| 传输 | `Accept`、`Content-Type`、`Cache-Control`、`Connection` |
+| 传输 | `Accept`、`Content-Type`、`Cache-Control`、`Connection`、`User-Agent: undici`、`Accept-Language: *`、`Sec-Fetch-Mode: cors` |
 | 签名 | `Authorization`、`Cosy-Date`、`Cosy-Key`、`Login-Version` |
 | CLI 身份与业务 | `Cosy-Business-Product`、`Cosy-Business-Type`、`Cosy-ClientType`、`Cosy-Data-Policy`、`Cosy-MachineId`、`Cosy-MachineOS`、`Cosy-MachineHostname`、`Cosy-Scene`、`Cosy-User`、`Cosy-Version` |
-| 条件字段 | 非空组织身份的 `Cosy-Organization-Id` / `Cosy-Organization-Tags`，已选模型的 `X-Model-Key` / `X-Model-Source` |
+| 条件字段 | 非空组织身份的 `Cosy-Organization-Id` / `Cosy-Organization-Tags`；非空模型键的 `X-Model-Key`，来源已提供时的 `X-Model-Source`（显式空字符串保留） |
 
-模型目录、数据政策、OAuth 和额度请求继续使用各自逐字段构造的请求头与请求体，不接入客户端头透传。HTTP 宿主自动生成的 `Host` / `Content-Length` 等传输字段不属于插件的参数透传。
+模型目录、数据政策、OAuth 和额度请求继续使用各自逐字段构造的请求头与请求体，不接入客户端头透传。Fetch 默认 `User-Agent` 为 `undici`；显式 JSON OpenAPI 请求保留 `qoder/1.1.75`，授权轮询使用 Fetch 默认值。HTTP 宿主自动生成的 `Host` / `Content-Length` 等传输字段不属于插件的参数透传。
+
+全部 HTTP 请求通过 SDK `http_start_with_compression` 声明策略：请求正文不做 HTTP 压缩，普通 HTTPS / 推理请求按顺序接受 `br, gzip, deflate`，认证的模型目录和政策签名 GET 声明空响应列表，由宿主发送 `identity`。协商头、响应编码校验和流式解压由宿主独占；插件不手写 `Accept-Encoding` / `Content-Encoding` / `Content-Length`，也不包含 HTTP 压缩或解压实现。配套宿主按声明顺序去重，不能再按固定枚举顺序重排。Qoder 的私有 `encode_body` / base64 封装及其签名仍由插件处理，它们不是 HTTP 内容压缩。
 
 ### 缓存键与会话键对照
 
-官方来源为上文链接的 npm 发布包，以下结论来自实际 RemoteChatAsk 构造器及缓存函数，不以通用 `chat.proto` 的可选字段代替真实发送行为：
+以下对照以官方 CLI `1.1.75` 的完整正常构造链为基线，不以孤立缓存函数或通用 `chat.proto` 的可选字段代替最终发送行为：
 
 | 字段 / 机制 | 官方 CLI | 当前插件 |
 |---|---|---|
-| `session_id` | `S8e` 必填会话值 | 由宿主 GenerationChain 亲和键确定性转换为 CLI UUID 布局；同链稳定 |
+| `session_id` | 正常构造链接收会话值 | 由宿主 GenerationChain 亲和键确定性转换为 CLI UUID 布局；同链稳定 |
 | `request_id` / `chat_record_id` | 当前请求共用同一 ID | 已发送同一本轮随机 UUID |
-| `request_set_id` | `S8e` 接受独立请求组 ID；正常 `Zsl` / `AgentLifecycle` 路径传入组值 | 每次 Infer 创建独立请求组 UUID，不再等同请求 ID |
-| `business.id` | `AgentLifecycle` 创建业务 ID，特定调用可复用预分配组值 | 已发送本轮独立业务 UUID |
+| `request_set_id` | 请求组独立于请求；正常 Agent 生命周期在工具轮次间复用 | 每次 Infer 创建独立请求组 UUID，不等同请求 ID |
+| `business.id` | Agent 生命周期创建并复用业务 ID，特定调用可使用预分配值 | 已发送本轮独立业务 UUID |
 | `agent_id` / `task_id` | 业务路由字符串，不是会话 UUID | 保留正常路由 `agent_common` / `common`，不拿宿主链路 ID 替代 |
 | 签名 payload `requestId` | 认证签名协议的请求标识 | 保留独立的本次签名 UUID，不将其误认为会话键 |
-| 内容 `cache_control` | `DlA` 在转换工具结果前调用 `Fgi` 选择断点，随后由 `FWc` / `UWc` 投影 | 已实现正常推理自动断点及显式文本缓存标记；只发送 CLI 字段 |
-| `source_session_id` | `S8e` / `Zsl` 条件性传递分支或恢复的来源会话 | 当前宿主未给出此类来源会话状态，正常请求不发送；不拿 GenerationChain 直接父节点或客户端自报值冒充 |
-| `custom_context` / `patches` | `S8e` / `Zsl` 支持可选上下文及补丁 | 未建立相应 CLI 上下文/补丁状态，不透传任意对象 |
+| 内容 `cache_control` | 字符串预处理后选择自动断点，再投影消息和图片 | 已实现普通文本自动断点及显式一小时文本提示；图片最终不带标记 |
+| `source_session_id` | 按实际分支或恢复状态条件传递来源会话 | 没有对应 CLI 来源会话状态时不发送；不拿父节点或客户端自报值冒充 |
+| `custom_context` / `patches` | 正常构造器支持可选上下文及补丁 | 未建立相应 CLI 上下文/补丁状态，不透传任意对象 |
 
-当前宿主给插件的执行元数据提供稳定 `session_affinity`，没有独立的 GenerationChain 当前节点、父节点或请求组 ID 契约；插件不从可丢失的 Observation 记录反向拼造身份，也不读取可能来自客户端的 `__stravia_generation_session_id` 作为官方会话。请求组和业务 ID 的范围是一轮 Infer，不声称复刻宿主未交付的完整 CLI Agent 生命周期。
+宿主提供的 `session_affinity` 用于会话亲和，不等于 CLI 请求组。插件未建立与 CLI Agent 生命周期对应的跨轮业务状态，不从 Observation、宿主父节点或客户端自报值拼造身份。请求组和业务 ID 的范围是一轮 Infer，不声称复刻完整 CLI Agent 生命周期。
 
-自动缓存断点按官方 `Fgi` 的默认 `skipCacheWrite=false` 路径处理：
+自动缓存断点按官方正常预处理及 `HYi` 的 `skipCacheWrite=false` 路径处理：
 
-1. 在拆分工具结果前，选择最后一条非 system/developer 历史；仅处理内容块数组，字符串历史不自动加标记。
+1. 字符串用户内容先归一为文本块，空 user 省略，连续 user 按正常链合并。再选择最后一条非 system/developer 历史，在拆分工具结果前处理。
 2. 从该消息末尾向前选择第一个非 thinking、redacted thinking、tool use、tool result 的块。canonical reasoning 块作为 thinking 处理。只在这条消息内查找，不回退到更早消息。
-3. 选中文本时发送 `{"type":"ephemeral"}`；既有显式文本缓存标记仍保留。选中图片时，官方 `MWc` 图像转换不会传出该标记，不能改为标记更早文本。选中空文本时，官方转换丢弃空文本，同样不能挪动断点。
+3. 选中文本时发送 `{"type":"ephemeral"}` 并覆盖该断点原有 TTL；更早的显式一小时标记保留。选中普通图片时，后续 `hVl` / `wco` 重建 `image_url` 会丢弃缓存字段，不能改为标记更早文本。选中空文本时，后续转换丢弃空文本，同样不能挪动断点。
 
-CLI 的侧路辅助请求可用 `skipCacheWrite=true` 选择倒数第二条消息；当前 canonical Infer 没有该 CLI 工作流状态，插件不新增自报控制键或假造侧路请求。官方标记规则已经从发布包定位并以合成输入执行核对，因此无需采用 Claude 插件的替代规则。
+CLI 的 `skipCacheWrite=true` 侧路依赖其工作流状态；当前 canonical Infer 不具备该状态，插件不新增客户端自报控制键或假造侧路请求。不支持的图像格式按官方前置降级规则变为占位文本，非视觉模型的图像降级则保留其后置时序；两者不能混用缓存规则。
 
-原生 `S8e` 路径没有独立的 OpenAI/Responses 风格缓存键；这些入口字段不出站。非原生的 `max_completion_tokens` 别名处理已删除，入口 codec 转为 canonical `max_tokens` 后才参与原生投影。发布包 `chat.proto` 虽定义了 `cache_id`，核对的原生构造路径未发现赋值，不额外发送。CLI tracing 头依赖其遥测上下文；插件不伪造这些值。
+正常原生链没有独立的 OpenAI/Responses 风格缓存键；这些入口字段不出站。非原生的 `max_completion_tokens` 别名处理已删除，入口 codec 转为 canonical `max_tokens` 后才参与原生投影。发布包 `chat.proto` 虽定义了 `cache_id`，核对的正常构造链未观察到赋值，不额外发送。CLI tracing 头依赖其遥测上下文；插件不伪造这些值。
 
 是否命中上游缓存、缓存 TTL 或计费收益不能由静态字段判断；本次离线验证不调用真实账号，也未修改宿主会话接口。
 
@@ -118,9 +121,11 @@ CLI 的侧路辅助请求可用 `skipCacheWrite=true` 选择倒数第二条消�
 
 品牌图标由 `assets/qoder.svg` 编译进 Wasm，无需运行时下载。它使用 [Qoder 官方 SVG](https://qoder.com/favIcon.svg) 的原始路径，去掉底色并转为透明单色，以适配 Stravia 的浅色和深色主题。显示图标需要同时使用更新后的宿主并重新导入插件；归属及授权边界见 [NOTICE](NOTICE)。
 
-依赖 Rust `1.99.0`、`wasm32-wasip2` target，以及可选的 [Task](https://taskfile.dev)。工具链由 `rust-toolchain.toml` 固定。
+依赖 Rust `1.99.1`、`wasm32-wasip2` target，以及可选的 [Task](https://taskfile.dev)。工具链由 `rust-toolchain.toml` 固定。
 
-当前配套 dev 提交为 `7fac0bc5af644ae13c389b219700a9c4359181af`，SDK 版本仍为 `0.4.0`；发布工作流默认固定此提交。CI 构建前，该提交必须可从 Stravia 宿主远端取得；历史标签仍使用各自提交中固定的依赖，不跟随分支自动改变。本地路径依赖使用相邻 checkout 的实际工作区，构建前需自行确认其 revision 与此提交一致。
+当前配套 dev 基线为 `a97469a5a577f61eaa0b5f262005c9ee3603b8c6`，SDK crate 版本为 `0.5.2`，Vendor WIT world 为 `stravia:vendor@0.5.1`；发布工作流默认固定此基线。历史标签仍使用各自提交中固定的依赖，不跟随分支自动改变。本地路径依赖使用相邻 checkout 的实际工作区；新版组件需要支持显式 HTTP 压缩接口的宿主，不能仅凭产品版本号相同就假定旧 dev 提交可用。
+
+本轮另修改配套宿主，使响应编码声明保序并按首次出现去重；该工作区补丁尚未包含在上述上游提交中。要得到精确的 `br, gzip, deflate` 协商顺序，必须重新构建包含此修改的宿主。CI 的 SDK 基线不代表已发布宿主也包含该传输修复；正式发布时应同步宿主补丁及对应 revision。
 
 ```bash
 # 构建组件
@@ -142,20 +147,42 @@ task test
 
 当前 Stravia runtime 接受受限接口集合中的稳定 WASI `0.2.x` 版本，包括 SDK 与 Rust 标准库的混合 patch 版本；接口函数和资源类型仍须匹配。组件契约测试加载实际产物验证这些导入，不修改宿主白名单或二进制导入名称绕过检查。
 
-离线验证分两层：
+离线验证覆盖以下层次：
 
-- 单元测试对照官方 CLI `1.1.65` 的全合成认证 WASM 向量，覆盖 AES/RSA、请求编码、签名、思考开关、错误分类和额度边界。
-- 组件契约加载实际 Wasm，通过本地全合成响应覆盖两区域登录、刷新、模型、额度和任意字节切块的 SSE，并独立解码请求、验算签名。并行工具历史和业务上下文夹具来自官方构造器及正常 `AgentLifecycle` 的合成执行，覆盖反序结果、错误标记和客户端身份覆盖。
+- 30 项单元测试通过；保留官方 `1.1.65` 的全合成密码学向量，并覆盖新增思考激活优先级、目录档位筛选、缓存及非空思考签名边界。
+- 6 项真实 Wasm 组件契约通过，覆盖两区域登录、刷新、模型、额度、原生签名、反序并行工具结果及任意字节切块 SSE；正文夹具更新为官方 `1.1.75` 正常链输出。
+- 20 组 SDK 等价输入通过实际 Wasm 与官方黄金向量的 JSON 语义差分；随机 ID、时间和传入会话归一化，业务标题由官方 `E_a` 独立计算。实际出站同时检查 Fetch 默认头、三种响应编码策略及稳定合成身份。永久 `protocol_smoke` 另经 Responses 字符串入口返回 `SDK_DEV_OK`，合成 usage 总计 14 token。
+- 配套宿主通过 6 项 HTTP 编码/解码测试及 2 项真实 TCP 编码协商测试，覆盖声明保序、首次去重、空列表 `identity`、响应白名单、截断及流式边界。Wasm mock 回复不冒充宿主 HTTP 解压验证。
+
+官方原始场景保存在 `tests/fixtures/qoder_cli_1_1_75_body_cases.json`。差分中的显式缓存使用直接 SDK `CacheControl`，因为本轮 Anthropic 入口转换已将该单文本块折为字符串；非标准 `JPG` MIME 也使用直接 SDK 媒体输入，不声称 Anthropic wire 接受它。SDK 没有对应的历史清除控制，等价 CLI 输入不提供 `generation.reasoning.preserve=false`。完整合成输入、正文、差分范围及组件 SHA-256 保存在本地生成的 `target/qoder-cli-1.1.75-parity-report.json`，其中不保存认证请求头。这些验证没有访问生产账号。
 
 独立组件 smoke 已运行，包含固定版本宿主的原始 `credential_bundle_from_response` 函数和 `CredentialBundle` 类型：旧 `0.1.5` 产物因缺少标准访问令牌被拒收，修复版通过凭据接收及元数据 JSON 往返，并继续完成模型、额度、中文文本、推理、分片工具参数和 usage。组件回归同时确认刷新时不同的 canonical 账号仍被拒绝；缺少 `event:finish` 和跨区域凭据也被拒绝。这部分验证不调用真实账号。
 
 `0.1.8` 已通过真实 Stravia 桌面客户端加载并测试 CN `qfmodel`（Qwen3.8-Flash）：同账号、同消息、同参数下，旧 `0.1.7` 返回 HTTP 200 内的业务 400 `oa_qwen-plus-main / Execution failed: null`；只补充 `business` 后返回 `QODER_OK` 和真实 usage。临时恢复旧产物仍失败，再恢复修复版再次成功，排除了期间上游自行恢复的解释。真实 SSE 工具调用也完成参数分片及正常终止；241 条合成消息、108 次工具调用/结果、54 组并行调用和反序结果，在 `reasoning_effort=medium` / `max_tokens=16384` 下正确返回 `alpha/beta`。该历史使用 3088 输入 token，不是原始约 107394 token 的私有内容重放；Global 和其他模型没有真实账号验证，非公开协议未来仍可能变化。
 
+## REA 逆向分析工具（开发用途）
+
+项目根目录的 `.mcp.json` 为 Windows 下的 OMP 注册了 [REA](https://github.com/morluto/rea) MCP 服务，通过 `npx` 运行固定版本，不修改用户全局代理配置。需要符合 [REA 运行要求](https://github.com/morluto/rea/blob/main/docs/installation.md) 的 Node.js 与 npm；Rust 构建和 Wasm 插件不依赖此工具。
+
+`.agents/skills/reverse-engineer-anything/` 包含该 npm 发行包配套的技能与参考资料。安装后重启当前项目的 OMP 会话，使其发现 MCP 服务和技能。CLI 也可直接使用：
+
+```powershell
+npx --yes --ignore-scripts rea-agents@6.7.0 --help
+```
+
+启动配置使用 `--ignore-scripts`，避免可选 Frida 依赖的原生安装脚本阻塞下载。Frida 原生绑定不在本次安装范围内；需要动态插桩时须单独完成安装。原生反编译还需自行配置 Ghidra 或 IDA 等分析引擎；注册 MCP 不代表所有分析后端均已就绪。
+
+不带参数的 `rea doctor` 执行全局审计，检查用户级客户端注册、技能和分析引擎；本项目仅使用项目级配置，因此该命令仍可能报告用户级注册缺失和 `healthy: false`。项目接入应通过 `.mcp.json` 中的启动命令完成 MCP `initialize` 与 `tools/list` 验证，不应为消除全局审计提示而改写用户配置。
+
 ## 协议来源与维护
 
-当前客户端身份使用官方 [`@qoder-ai/qodercli` latest](https://registry.npmjs.org/@qoder-ai/qodercli/latest) 核实的正式版 `1.1.70`；[对应发布包](https://registry.npmjs.org/@qoder-ai/qodercli/-/qodercli-1.1.70.tgz) 的身份构造保持现有原生签名形态。OpenAPI User-Agent、`Cosy-Version`、签名 payload 与推理业务版本同步使用该值；认证与签名的历史校验向量仍保留其原始版本。
+当前客户端身份固定为已核对的官方 CLI [`1.1.75`](https://registry.npmjs.org/@qoder-ai/qodercli/-/qodercli-1.1.75.tgz)。显式 OpenAPI User-Agent、`Cosy-Version`、签名 payload 和推理业务版本同步使用该值；普通 Fetch 请求使用官方传输链的 `undici` 默认 User-Agent。
 
-本实现以官方 [`@qoder-ai/qodercli@1.1.65` 发布包](https://registry.npmjs.org/@qoder-ai/qodercli/-/qodercli-1.1.65.tgz) 的静态源码和全合成离线互操作结果为依据。生产组件不分发、嵌入或执行其认证 WASM。
+本实现以该发布包的定向源码、隔离官方函数执行和实际 Wasm 差分为依据。`bundle/qodercli.js` 文本 SHA-256 为 `1b5b17bb25bcd2e059a97e8bc1d4280e4c16fb4194b004463cd677c434536948`；历史认证向量保留其原始 `1.1.65` 版本，不冒充新版向量。生产组件不分发、嵌入或执行官方认证 WASM，也不运行 CLI bootstrap。
+
+最终传输核对覆盖正常 `sendRemoteChatAsk → X8i → KYe.send → za → HFi → H_A → FT → YSn → h9i → FD.fetch`，不是仅凭 bundle 中存在某个 HTTP 库推断默认值。官方 FT 用合成 HTTPS dispatcher 执行，物理网络和文件系统访问被拒绝；新版图片缓存的早期孤立函数结论已撤回，以前述完整链规则为准。可选 `custom_context` / `source_session_id` / `patches` 仍须有真实 Agent 状态才发送，不构造替代值。
+
+这些核对证明已覆盖输入下的 HTTP 应用层字段与 JSON 语义，不是整包或全 Agent 等价证明。JSON 成员序列、HTTP 头序列化格式、TLS / ALPN、HTTP 版本和连接管理不承诺与 CLI 相同；不能保证服务端无法区分，也不能由静态字段推断真实缓存命中、TTL 或计费收益。
 
 研究对照包括 [qodercli2api](https://github.com/Liki4/qodercli2api)、[qoder-proxy](https://github.com/avaritiachaos/qoder-proxy) 和 [qoder-cli-api](https://github.com/onehub-work/qoder-cli-api)。社区实现与官方当前版本的差异需分别核实，本仓库未直接复制 AGPL 实现源码。
 
@@ -182,6 +209,16 @@ vendor/             消息编译器与第三方许可证
 ```
 
 ## 变更记录
+
+### 未发布
+
+- 配套 Stravia dev 基线更新为 `a97469a5a577f61eaa0b5f262005c9ee3603b8c6`，五个 Stravia crate 统一升级为 `0.5.2`，Vendor WIT world 为 `stravia:vendor@0.5.1`；Rust 工具链和最低版本同步为 `1.99.1`，发布工作流使用相同 SDK 基线。宿主保序补丁仍是本轮工作区改动，尚未随该上游提交发布。
+- 客户端身份更新为官方 CLI `1.1.75`；普通 Fetch 补齐 `undici`、`Accept-Language` 和 `Sec-Fetch-Mode`，显式 OpenAPI UA 保持优先。按请求类别补齐版本、客户端类型和配置平台字段，修正模型头的缺失/空值条件。
+- 默认 hostname 改为机器 UUID 派生的稳定 `DESKTOP-` 合成名称，不读取真实硬件；保留官方非推理签名 UUID 回退，推理不伪造 UMID。PKCE verifier 使用官方 43–128 长度与字符集，刷新体保持 `refresh_token`、`machine_id` 顺序且不补造机器令牌。
+- 全部 HTTP 调用使用 SDK 显式压缩入口，普通请求声明 `br, gzip, deflate`，模型和政策签名 GET 声明空列表，由宿主发送 `identity`。配套宿主保留声明顺序、首次去重及严格编码校验；不增加 Wasm HTTP 压缩实现，保留 Qoder 私有封装与签名。
+- 正文按官方完整正常链投影：普通字符串归一后参与自动缓存，保留非尾断点一小时 TTL，处理空/连续用户消息、图片规范化及降级、错误工具图片和空工具参数。撤回此前基于孤立缓存函数得出的图片标记结论；普通图片最终仍不带标记。空思考签名不出站。
+- 思考激活遵循 SDK mode、level、budget 的优先级；显式禁用不被预算重新启用，未指定时保留目录默认，不支持的档位不新增激活字段。保留采样零值，省略 `top_k=0`。
+- 通过 30 项单元测试、6 项真实 Wasm 契约、宿主 8 项 HTTP/协商测试及 20 组等价 SDK 输入差分；独立 `protocol_smoke` 返回 `SDK_DEV_OK` 和 14 token 合成 usage。未访问真实账号服务；使用新版须重建配套宿主并重新导入组件。
 
 ### 0.1.11
 

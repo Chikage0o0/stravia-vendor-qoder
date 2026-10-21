@@ -59,9 +59,25 @@ fn start(
         Some(Value::String(id)) if uuid::Uuid::parse_str(id).is_ok() => id.clone(),
         _ => uuid::Uuid::new_v4().to_string(),
     };
-    let mut entropy = [0u8; 48];
-    getrandom::fill(&mut entropy).map_err(|_| error("secure device login entropy unavailable"))?;
-    let verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(entropy);
+    // 官方 MXc 使用 43..=128 位 RFC 7636 字符；长度也使用安全熵，避免降低认证边界。
+    let mut length = [0u8; 1];
+    loop {
+        getrandom::fill(&mut length)
+            .map_err(|_| error("secure device login entropy unavailable"))?;
+        if length[0] < 172 {
+            break;
+        }
+    }
+    let length = 43 + usize::from(length[0] % 86);
+    let mut entropy = [0u8; 128];
+    getrandom::fill(&mut entropy[..length])
+        .map_err(|_| error("secure device login entropy unavailable"))?;
+    const PKCE_ALPHABET: &[u8; 66] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    let mut verifier = String::with_capacity(length);
+    for byte in &entropy[..length] {
+        verifier.push(char::from(PKCE_ALPHABET[usize::from(*byte) % 66]));
+    }
     let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .encode(Sha256::digest(verifier.as_bytes()));
     let pending = Pending {
@@ -135,6 +151,7 @@ fn poll(
         ),
         None,
         Vec::new(),
+        &provider.options,
         true,
     )?;
     if status == 404 {
@@ -179,15 +196,23 @@ fn refresh(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| error("refresh token missing"))?;
     safe(refresh)?;
-    let body =
-        serde_json::to_vec(&json!({"refresh_token":refresh,"machine_id":previous.machine_id}))
-            .map_err(|_| malformed("cannot encode refresh request"))?;
+    #[derive(Serialize)]
+    struct RefreshBody<'a> {
+        refresh_token: &'a str,
+        machine_id: &'a str,
+    }
+    let body = serde_json::to_vec(&RefreshBody {
+        refresh_token: refresh,
+        machine_id: &previous.machine_id,
+    })
+    .map_err(|_| malformed("cannot encode refresh request"))?;
     let (_, data) = request(
         host,
         "POST",
         format!("{}/api/v1/deviceToken/refresh", region.openapi_origin()),
         None,
         body,
+        &provider.options,
         false,
     )?;
     credentials(
@@ -224,6 +249,7 @@ fn credentials(
         format!("{}/api/v1/userinfo", region.openapi_origin()),
         Some(token),
         Vec::new(),
+        options,
         false,
     )?;
     // 官方 userinfo 的 canonical ID 优先于 uid 别名；两者可能同时存在。
@@ -261,6 +287,7 @@ fn credentials(
             ),
             Some(token),
             Vec::new(),
+            options,
             false,
         )?;
         let array = payload
@@ -288,7 +315,7 @@ fn credentials(
     );
     let mut http = protocol::prepare(region, &provisional, "GET", &path, &[], None, None)?;
     protocol::add_client_headers(&mut http.headers, options, machine, false)?;
-    let policy_response = host.http_start(http)?;
+    let policy_response = protocol::start_http(host, http)?;
     let status = policy_response.status()?;
     let bytes = read_http_body(&policy_response, MAX_BODY)?;
     if !(200..300).contains(&status) {
@@ -458,15 +485,17 @@ fn request(
     url: String,
     token: Option<&str>,
     body: Vec<u8>,
-    allow_oauth_error: bool,
+    options: &BTreeMap<String, Value>,
+    device_poll: bool,
 ) -> Result<(u16, Value), PluginError> {
-    let mut headers = vec![
-        ("Accept".into(), "application/json".into()),
-        (
+    let mut headers = vec![("Accept".into(), "application/json".into())];
+    if !device_poll {
+        headers.push((
             "User-Agent".into(),
             format!("qoder/{}", protocol::CLI_VERSION),
-        ),
-    ];
+        ));
+    }
+    protocol::add_client_headers(&mut headers, options, "", false)?;
     if method == "POST" {
         headers.push(("Content-Type".into(), "application/json".into()));
     }
@@ -474,16 +503,19 @@ fn request(
         safe(token)?;
         headers.push(("Authorization".into(), format!("Bearer {token}")));
     }
-    let response = host.http_start(HttpRequest {
-        method: method.into(),
-        url,
-        headers,
-        body,
-    })?;
+    let response = protocol::start_http(
+        host,
+        HttpRequest {
+            method: method.into(),
+            url,
+            headers,
+            body,
+        },
+    )?;
     let status = response.status()?;
     let response_headers = response.headers()?;
     let bytes = read_http_body(&response, MAX_BODY)?;
-    if allow_oauth_error && status == 404 {
+    if device_poll && status == 404 {
         return Ok((status, Value::Null));
     }
     if !(200..300).contains(&status) {

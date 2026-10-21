@@ -98,7 +98,7 @@ pub(crate) fn discover(
             &identity.machine_id,
             false,
         )?;
-        let response = host.http_start(http)?;
+        let response = protocol::start_http(host, http)?;
         let status = response.status()?;
         let headers = response.headers()?;
         let bytes = read_http_body(&response, 8 * 1024 * 1024)?;
@@ -156,6 +156,11 @@ fn parse_models(rows: &[Value], source: &str) -> Result<DiscoverResponse, Plugin
                 config.remove("model");
             }
             config["outer_provider"] = outer_provider.clone();
+        }
+        for field in ["efforts", "default_effort", "supports_disabled"] {
+            if let Some(value) = row.get(field).filter(|value| !value.is_null()) {
+                config[field] = value.clone();
+            }
         }
         for field in ["max_input_tokens", "max_output_tokens"] {
             if let Some(value) = row.get(field).and_then(Value::as_u64) {

@@ -16,7 +16,7 @@
   "machine_os_macos_x64": "macOS x64",
   "machine_os_macos_arm64": "macOS ARM64",
   "machine_hostname": "Client hostname",
-  "machine_hostname_description": "Optional. Normalized using official CLI rules before sending to Qoder. Leave blank for a stable stravia- name derived from the connection machine ID; the real hostname is not read.",
+  "machine_hostname_description": "Optional. Normalized using official CLI rules before sending to Qoder. Leave blank for a stable virtual hostname derived from the connection machine ID, without a plugin-specific prefix; the real hostname is not read.",
   "invalid_machine_os": "Client machine platform must be an OS and architecture combination from the list.",
   "invalid_machine_hostname": "Client hostname must be text without line breaks, at most 4096 bytes."
 }
