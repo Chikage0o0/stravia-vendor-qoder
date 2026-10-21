@@ -598,9 +598,6 @@ async fn regional_device_catalog_and_quota_contract() {
             "a different canonical account must be rejected before tags or policy queries"
         );
 
-        provider
-            .options
-            .insert("model_ids".into(), json!("synthetic-model"));
         local.reply(Reply::encoded(catalog()));
         let discovered = run(
             &runtime,
@@ -623,7 +620,7 @@ async fn regional_device_catalog_and_quota_contract() {
                 .iter()
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
-            ["synthetic-model"]
+            ["synthetic-model", "other-model"]
         );
         let model = &discovered.models[0];
         assert_eq!(model.display_name, "Synthetic Reasoning Vision");

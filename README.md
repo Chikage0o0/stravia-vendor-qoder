@@ -48,13 +48,12 @@ API Key:  由 Stravia 访问控制配置决定
 
 | 字段 | 说明 |
 |---|---|
-| `model_ids` | 可选，每行一个远端模型 ID。填写后仅同步目录中匹配的模型，留空时同步账号的可用 `assistant` 场景目录。不会从输入配置凭空生成模型。 |
 | `machine_os` | 配置的客户端平台枚举：`x86_64_win32`、`aarch64_win32`、`x86_64_linux`、`aarch64_linux`、`x86_64_darwin`、`aarch64_darwin`。默认 `x86_64_win32`，不是自动探测结果。 |
 | `machine_hostname` | 可选客户端名称。留空时使用 `DESKTOP-` 加持久化机器 UUID 的 SHA-256 前 7 位大写十六进制字符。自定义值按 CLI 的 ASCII / IDNA / 哈希规则规范化，出站最长 96 个 ASCII 字符；拒绝非字符串、CR/LF 和超过 4096 UTF-8 字节的输入。 |
 
 这些字段是可覆盖的合成客户端身份，不是实际硬件信息。签名的模型目录、数据政策和推理请求带 `Cosy-MachineOS`，仅推理请求带 `Cosy-MachineHostname`。插件不读取真实 hostname、MAC、机器 ID 或架构，也不生成真实 UMID。无 UMID 的推理请求省略 `Cosy-MachineToken` / `Cosy-MachineType`；模型目录和政策签名 GET 则保留官方回退语义：机器 UUID 用作 `Cosy-MachineToken` / `Cosy-ClientIp`，`Cosy-MachineType` 为 `5`。这不是采集到的硬件令牌或 IP。
 
-模型发现不发起推理，也不根据余额猜测模型是否免费。宿主提供的管理员静态模型 ID 列表可覆盖远端发现；该列表只接受字符串 ID，相关可用性仍由上游决定。
+模型同步返回账号的可用 `assistant` 场景目录，不再提供连接级模型 ID 筛选；需要补充模型时，可在供应商的“可用模型”页面手动添加。模型发现不发起推理，也不根据余额猜测模型是否免费。宿主提供的管理员静态模型 ID 列表可覆盖远端发现；该列表只接受字符串 ID，相关可用性仍由上游决定。
 
 当前 Stravia 宿主将本地 GenerationChain 根按 Principal / Target 隔离后，派生为操作元数据中的 `session_affinity`；WorkBuddy 插件使用的也是此键。Qoder 插件对该键计算 `SHA-256("qoder-session-v1\0" || affinity)`，取前 16 字节并设置 CLI UUID 的版本/variant 位，生成规范的 `session_id`。这是确定性格式转换，不是重新生成随机会话：同一宿主链路各轮保持一致，不同链路隔离。没有该元数据的旧宿主或独立调用仍使用本轮随机 UUID，不能保证跨轮亲和。
 
@@ -209,6 +208,11 @@ vendor/             消息编译器与第三方许可证
 ```
 
 ## 变更记录
+
+### 未发布
+
+- 删除添加供应商时的“自定义模型 ID”配置及其校验、目录筛选和中英文文案。模型同步保留全部可用目录结果，补充模型使用供应商“可用模型”页面的手动添加功能。
+- 更新插件后，旧连接若保存过 `vendor_options.model_ids`，需要通过管理 API 更新连接，显式提交已移除该键的 `vendor_options`，并保留仍需使用的 `machine_os`、`machine_hostname`；没有其他选项时提交空对象。宿主不会自动清理未知字段，普通连接编辑也不能移除它；省略 `vendor_options` 会继续保留旧值，旧键残留时配置校验会失败。
 
 ### 0.1.12
 

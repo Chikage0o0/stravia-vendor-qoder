@@ -15,39 +15,16 @@ fn malformed(message: &str) -> PluginError {
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 200 && !id.chars().any(|c| c.is_whitespace() || c.is_control())
 }
-fn configured_ids(options: &BTreeMap<String, Value>) -> Result<BTreeSet<&str>, ()> {
-    let Some(value) = options.get("model_ids") else {
-        return Ok(BTreeSet::new());
-    };
-    let text = value.as_str().ok_or(())?;
-    if text.len() > 16384 {
-        return Err(());
-    }
-    let mut ids = BTreeSet::new();
-    for id in text.lines().map(str::trim).filter(|s| !s.is_empty()) {
-        if !valid_id(id) || !ids.insert(id) {
-            return Err(());
-        }
-    }
-    Ok(ids)
-}
 pub(crate) fn validate(options: &BTreeMap<String, Value>) -> ConfigValidationResponse {
     let mut issues = protocol::validate_client_options(options);
     if options
         .keys()
-        .any(|k| !matches!(k.as_str(), "model_ids" | "machine_os" | "machine_hostname"))
+        .any(|k| !matches!(k.as_str(), "machine_os" | "machine_hostname"))
     {
         issues.push(ValidationIssue {
             field: None,
             code: "unknown_option".into(),
             message: messages::invalid_options(),
-        });
-    }
-    if configured_ids(options).is_err() {
-        issues.push(ValidationIssue {
-            field: Some("model_ids".into()),
-            code: "invalid_model_ids".into(),
-            message: messages::invalid_model_ids(),
         });
     }
     ConfigValidationResponse {
@@ -68,8 +45,7 @@ pub(crate) fn discover(
         return Err(invalid("invalid Qoder model options"));
     }
     let identity = auth::identity(provider, region)?;
-    let ids = configured_ids(&provider.options).map_err(|_| invalid("invalid model IDs"))?;
-    let mut result = if let Some(rows) = provider.operation_metadata.get("static_models") {
+    let result = if let Some(rows) = provider.operation_metadata.get("static_models") {
         let rows = rows
             .as_array()
             .ok_or_else(|| invalid("static_models must be an array"))?;
@@ -114,11 +90,6 @@ pub(crate) fn discover(
             .ok_or_else(|| malformed("Qoder catalog has no assistant scene"))?;
         parse_models(rows, "account-catalog")?
     };
-    if !ids.is_empty() {
-        result
-            .models
-            .retain(|model| ids.contains(model.id.as_str()));
-    }
     Ok(result)
 }
 fn parse_models(rows: &[Value], source: &str) -> Result<DiscoverResponse, PluginError> {
@@ -330,20 +301,15 @@ mod tests {
         assert_eq!(result.models[0].metadata["limit"]["input"], json!(100));
     }
     #[test]
-    fn duplicate_ids_and_removed_options_are_invalid() {
-        assert!(
-            !validate(&BTreeMap::from([("model_ids".into(), json!("a\na"))]))
-                .issues
-                .is_empty()
-        );
-        assert!(
-            !validate(&BTreeMap::from([(
-                "auto_paid_on_rate_limit".into(),
-                json!(true)
-            )]))
-            .issues
-            .is_empty()
-        );
+    fn removed_options_are_invalid() {
+        for (key, value) in [
+            ("model_ids", json!("synthetic-model")),
+            ("auto_paid_on_rate_limit", json!(true)),
+        ] {
+            let result = validate(&BTreeMap::from([(key.into(), value)]));
+            assert_eq!(result.issues.len(), 1);
+            assert_eq!(result.issues[0].code, "unknown_option");
+        }
     }
     #[test]
     fn official_thinking_map_controls_off_and_default() {
