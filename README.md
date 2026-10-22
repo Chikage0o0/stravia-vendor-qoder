@@ -55,9 +55,33 @@ API Key:  由 Stravia 访问控制配置决定
 
 模型同步返回账号的可用 `assistant` 场景目录，不再提供连接级模型 ID 筛选；需要补充模型时，可在供应商的“可用模型”页面手动添加。模型发现不发起推理，也不根据余额猜测模型是否免费。宿主提供的管理员静态模型 ID 列表可覆盖远端发现；该列表只接受字符串 ID，相关可用性仍由上游决定。
 
-当前 Stravia 宿主将本地 GenerationChain 根按 Principal / Target 隔离后，派生为操作元数据中的 `session_affinity`；WorkBuddy 插件使用的也是此键。Qoder 插件对该键计算 `SHA-256("qoder-session-v1\0" || affinity)`，取前 16 字节并设置 CLI UUID 的版本/variant 位，生成规范的 `session_id`。这是确定性格式转换，不是重新生成随机会话：同一宿主链路各轮保持一致，不同链路隔离。没有该元数据的旧宿主或独立调用仍使用本轮随机 UUID，不能保证跨轮亲和。
+### 会话与请求 ID 契约
 
-每次 canonical Infer 创建一个原生请求组：`request_id` / `chat_record_id` 共用一枚 UUID，`request_set_id` 使用另一枚独立 UUID。每次推理还创建独立的 `business` 上下文，包含 CLI 产品/协议版本、`agent` 类型、独立 UUID、开始时间和 `start` 阶段。标题取当前提示的有效 Unicode 前缀，最长 10 个 UTF-16 单元，不生成半个代理对。该对象是上游业务路由所需的请求组成部分，不是可随意省略的日志字段；插件不额外调用业务上报服务。
+核对对象为官方 CLI `1.1.75`（插件固定版本）与当前最新 `1.1.76`；两者 ID 构造点（请求构造器、重试重生成、业务上下文）逐字相同，仅混淆名不同。官方所有 ID 都是 `node:crypto.randomUUID()`，即小写、带横线、36 字符的 UUIDv4；CLI 对会话 ID 的校验（`--session-id`、分叉目标）只要求 `8-4-4-4-12` 十六进制，不限定版本，也不区分大小写。
+
+| 字段 | 官方生命周期 | 插件来源与行为 |
+|---|---|---|
+| `session_id` | 会话启动时新建（`sessionId ?? randomUUID()`），恢复会话沿用，不可为空 | 宿主 `operation_metadata.session_affinity` 的确定性转换；缺失、空串或非字符串时按官方新建语义使用本次随机 v4 |
+| `request_id` = `chat_record_id` | 每个模型请求新建一枚，两字段同值；CLI 内部连接重试会重新生成这一对 | 每次 Infer 新建一枚 v4，两字段同值；没有宿主提供的请求级可信源，不由会话键推导 |
+| `request_set_id` | 每次用户提示预分配一枚，工具轮次、压缩、重试共用；子代理另建 | 每次 Infer 新建一枚 v4，不等于 `request_id`；宿主未提供用户运行级 ID，无法跨 Infer 复用 |
+| `business.id` | 主路径（TUI 与 SDK 提交）取同一提示的 `request_set_id`；仅挂起工具调用回放等路径独立新建 | 与本次 `request_set_id` 同值 |
+| 签名 payload `requestId`、数据政策 `requestId` | 各自独立的 `randomUUID()` | 保持各自既有 profile，不参与会话转换 |
+
+`session_affinity` 由宿主把本地 GenerationChain 根按 Principal / Target 隔离后派生，不取客户端自报的 session。插件对它计算：
+
+```text
+SHA-256(b"qoder-session-v1\0" || affinity 的完整 UTF-8 字节)
+→ 取前 16 字节
+→ bytes[6] = (bytes[6] & 0x0f) | 0x40
+→ bytes[8] = (bytes[8] & 0x3f) | 0x80
+→ 小写、带横线的 36 字符 UUID
+```
+
+命名域末尾是真实 NUL 字节。不 trim、不改大小写、不解码十六进制；中文、CRLF、NUL 都按完整字节参与，输出只含十六进制。这是算法一旦发布即固定的稳定身份契约，不使用随机数、时间、设备或路径信息，也没有映射表或持久化：同一宿主链路各轮、跨重试、进程重启和插件重载得到同一 `session_id`，不同链路隔离。设置的是 CLI 默认 v4 形态的版本位，不是官方提供的确定性算法。固定向量：`user-run-a → df352d67-b004-4662-8b31-494dc95f5c74`，`user-run-b → 8da1458d-0507-4290-84e5-b170af8a88ca`。
+
+宿主目前不提供请求级或用户运行级的可信 ID。canonical `parameters.session.{id,request_id,turn_id,root_turn_id}` 来自客户端协议，不具备宿主作用域，不被采用；`transport_affinity` 是传输复用键，也不用作 Qoder 会话。因此请求组仍按官方“现场新建”语义每次 Infer 重新生成。若宿主日后提供经作用域隔离的运行 ID，才能把 `request_set_id` / `business.id` 改为同样的确定性映射，并在同一运行的多次模型调用间复用。
+
+每次推理还创建独立的 `business` 上下文，包含 CLI 产品/协议版本、`agent` 类型、`request_set_id` 同值的业务 ID、开始时间和 `start` 阶段。标题取当前提示的有效 Unicode 前缀，最长 10 个 UTF-16 单元，不生成半个代理对。该对象是上游业务路由所需的请求组成部分，不是可随意省略的日志字段；插件不额外调用业务上报服务。
 
 推理直接投影 canonical IR，不再借用会拆分和重排并行历史的 OpenAI 编码器。工具结果错误标记和显式缓存提示仅在输入 IR 中存在时保留；若入口 codec 已丢弃标记或将带提示的文本块折叠为字符串，插件无法恢复原始客户端 wire 信息。白名单外的请求选项静默忽略，不发送、不告警，也不因为这些选项拒绝推理；非法凭据、区域、配置和无法表达的实际消息内容仍明确报错。
 
@@ -90,10 +114,10 @@ API Key:  由 Stravia 访问控制配置决定
 
 | 字段 / 机制 | 官方 CLI | 当前插件 |
 |---|---|---|
-| `session_id` | 正常构造链接收会话值 | 由宿主 GenerationChain 亲和键确定性转换为 CLI UUID 布局；同链稳定 |
+| `session_id` | 正常构造链接收会话值 | 由宿主 GenerationChain 亲和键确定性转换（`qoder-session-v1` 域，v4 位布局）；同链稳定，详见上节 |
 | `request_id` / `chat_record_id` | 当前请求共用同一 ID | 已发送同一本轮随机 UUID |
 | `request_set_id` | 请求组独立于请求；正常 Agent 生命周期在工具轮次间复用 | 每次 Infer 创建独立请求组 UUID，不等同请求 ID |
-| `business.id` | Agent 生命周期创建并复用业务 ID，特定调用可使用预分配值 | 已发送本轮独立业务 UUID |
+| `business.id` | 主路径取该提示的请求组 ID，特定调用可使用独立预分配值 | 与本轮 `request_set_id` 同值 |
 | `agent_id` / `task_id` | 业务路由字符串，不是会话 UUID | 保留正常路由 `agent_common` / `common`，不拿宿主链路 ID 替代 |
 | 签名 payload `requestId` | 认证签名协议的请求标识 | 保留独立的本次签名 UUID，不将其误认为会话键 |
 | 内容 `cache_control` | 字符串预处理后选择自动断点，再投影消息和图片 | 已实现普通文本自动断点及显式一小时文本提示；图片最终不带标记 |
@@ -148,8 +172,8 @@ task test
 
 离线验证覆盖以下层次：
 
-- 30 项单元测试通过；保留官方 `1.1.65` 的全合成密码学向量，并覆盖新增思考激活优先级、目录档位筛选、缓存及非空思考签名边界。
-- 6 项真实 Wasm 组件契约通过，覆盖两区域登录、刷新、模型、额度、原生签名、反序并行工具结果及任意字节切块 SSE；正文夹具更新为官方 `1.1.75` 正常链输出。
+- 32 项单元测试通过；保留官方 `1.1.65` 的全合成密码学向量，并覆盖新增思考激活优先级、目录档位筛选、缓存及非空思考签名边界，以及会话 ID 固定向量和请求组 ID 生命周期。
+- 7 项真实 Wasm 组件契约通过，覆盖两区域登录、刷新、模型、额度、原生签名、反序并行工具结果及任意字节切块 SSE；正文夹具更新为官方 `1.1.75` 正常链输出。其中身份边界契约加载实际产物，跨插件重载、会话隔离、非法亲和键和客户端伪造字段逐项验证。
 - 20 组 SDK 等价输入通过实际 Wasm 与官方黄金向量的 JSON 语义差分；随机 ID、时间和传入会话归一化，业务标题由官方 `E_a` 独立计算。实际出站同时检查 Fetch 默认头、三种响应编码策略及稳定合成身份。永久 `protocol_smoke` 另经 Responses 字符串入口返回 `SDK_DEV_OK`，合成 usage 总计 14 token。
 - 配套宿主通过 6 项 HTTP 编码/解码测试及 2 项真实 TCP 编码协商测试，覆盖声明保序、首次去重、空列表 `identity`、响应白名单、截断及流式边界。Wasm mock 回复不冒充宿主 HTTP 解压验证。
 
@@ -211,6 +235,8 @@ vendor/             消息编译器与第三方许可证
 
 ### 未发布
 
+- 对齐官方 CLI 的会话与请求 ID：`business.id` 改为与同次 `request_set_id` 同值（官方 TUI 与 SDK 主路径的 `Sin(... id: r||djA())`），此前是独立随机 UUID。核对 `1.1.75` 与 `1.1.76` 的 ID 构造点一致；`session_id` 的稳定映射、`request_id` / `chat_record_id` 同值及每次推理重新生成的行为不变，宿主没有请求级可信源时不伪造稳定值。
+- `session_id` 映射 `SHA-256("qoder-session-v1\0" || session_affinity)` 现作为稳定身份契约写入文档，并以固定向量、Unicode/CRLF/NUL、重载一致性和客户端伪造字段隔离的测试固定。修改该算法会使所有已有上游会话身份发生变化。
 - 删除添加供应商时的“自定义模型 ID”配置及其校验、目录筛选和中英文文案。模型同步保留全部可用目录结果，补充模型使用供应商“可用模型”页面的手动添加功能。
 - 更新插件后，旧连接若保存过 `vendor_options.model_ids`，需要通过管理 API 更新连接，显式提交已移除该键的 `vendor_options`，并保留仍需使用的 `machine_os`、`machine_hostname`；没有其他选项时提交空对象。宿主不会自动清理未知字段，普通连接编辑也不能移除它；省略 `vendor_options` 会继续保留旧值，旧键残留时配置校验会失败。
 

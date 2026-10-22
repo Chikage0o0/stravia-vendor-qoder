@@ -996,6 +996,7 @@ async fn official_cli_parallel_history_contract() {
         let business_id = uuid::Uuid::parse_str(business["id"].as_str().unwrap()).unwrap();
         assert_eq!(business_id.get_version_num(), 4);
         assert_ne!(business["id"], actual["request_id"]);
+        assert_eq!(business["id"], actual["request_set_id"]);
         // The fixture records historical CLI wire behavior, not today's client identity.
         oracle["business"]["version"] = business["version"].clone();
         oracle["business"]["id"] = business["id"].clone();
@@ -1424,6 +1425,7 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
         assert_eq!(body["session_id"], expected_session, "{label}");
         assert_eq!(body["request_id"], body["chat_record_id"]);
         assert_ne!(body["request_id"], body["request_set_id"]);
+        assert_eq!(body["request_set_id"], body["business"]["id"], "{label}");
         if let Some((request_id, request_set_id)) = &previous_ids {
             assert_ne!(&body["request_id"], request_id);
             assert_ne!(&body["request_set_id"], request_set_id);
@@ -1821,4 +1823,162 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
             region.channel
         );
     }
+}
+
+// 通过真实 Wasm 的外部边界验证 ID 契约：宿主会话键 → session_id 的确定性转换，
+// 以及请求级 ID 的生命周期；不调用插件内部映射函数。
+#[tokio::test]
+#[ignore = "build the release wasm32-wasip2 component first"]
+async fn native_identity_lifecycle_boundary_contract() {
+    let region = REGIONS[0];
+    let mut seen_requests = std::collections::BTreeSet::new();
+
+    // 每个 VendorRuntime + load 等价一次插件重载：不得依赖任何实例内映射或持久化表。
+    for reload in 0..2 {
+        let runtime = VendorRuntime::new().unwrap();
+        let plugin = runtime.load(&artifact()).await.unwrap();
+        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let mut provider = snapshot(region);
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: format!("synthetic-identity-state-{reload}"),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
+        profile_replies(
+            &local,
+            "synthetic-identity-token",
+            "synthetic-identity-refresh",
+        );
+        provider.credentials = credentials(
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Poll),
+                local.scope(),
+            )
+            .await
+            .unwrap(),
+        );
+
+        // (affinity metadata, 期望 session_id；None 表示每次新建的随机 v4)
+        let cases: [(Option<Value>, Option<&str>); 9] = [
+            (
+                Some(json!("user-run-a")),
+                Some("df352d67-b004-4662-8b31-494dc95f5c74"),
+            ),
+            (
+                Some(json!("user-run-b")),
+                Some("8da1458d-0507-4290-84e5-b170af8a88ca"),
+            ),
+            (
+                Some(json!("user-run-a")),
+                Some("df352d67-b004-4662-8b31-494dc95f5c74"),
+            ),
+            (
+                Some(json!("你好\r\n\u{0}x")),
+                Some("459ab3ba-9c26-41e5-a5e9-8e60c217ff44"),
+            ),
+            (
+                Some(json!("\u{0}")),
+                Some("234bc72d-d33f-46ef-93b9-3c29f5abe840"),
+            ),
+            (Some(json!("")), None),
+            (Some(json!(7)), None),
+            (Some(json!(["user-run-a"])), None),
+            (None, None),
+        ];
+        let mut fresh_sessions = std::collections::BTreeSet::new();
+        for (index, (affinity, expected)) in cases.iter().enumerate() {
+            let mut call = provider.clone();
+            call.operation_metadata.remove("session_affinity");
+            if let Some(value) = affinity {
+                call.operation_metadata
+                    .insert("session_affinity".into(), value.clone());
+            }
+            // 客户端可控字段：canonical 会话参数与入口 metadata 都不能进入上游身份。
+            let mut input = request();
+            input.parameters.session.id = Some("client-session".into());
+            input.parameters.session.request_id = Some("client-request".into());
+            input.parameters.session.root_turn_id = Some("client-root".into());
+            input.meta.vendor.ingress.insert(
+                "__stravia_generation_session_id".into(),
+                json!("client-controlled-session"),
+            );
+            let completed = envelope(json!({
+                "id":"synthetic-identity-response","model":"synthetic-model",
+                "choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]
+            })) + "event: finish\ndata: {}\n\n";
+            local.reply(Reply::stream(&completed, 7));
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                OperationInput::Infer {
+                    provider: call,
+                    request: input,
+                },
+                local.scope(),
+            )
+            .await
+            .unwrap();
+            let requests = local.requests.lock();
+            let body = verify_signed(
+                requests.last().unwrap(),
+                region.infer,
+                "/api/v2/service/pro/sse/agent_chat_generation",
+                "synthetic-user",
+            )
+            .unwrap();
+            let session = body["session_id"].as_str().unwrap();
+            let parsed = uuid::Uuid::parse_str(session).unwrap();
+            assert_eq!(parsed.hyphenated().to_string(), session, "case {index}");
+            assert_eq!(parsed.get_version_num(), 4, "case {index}");
+            match expected {
+                Some(expected) => assert_eq!(session, *expected, "case {index} reload {reload}"),
+                None => assert!(
+                    fresh_sessions.insert(session.to_owned()),
+                    "case {index}: unusable affinity must create a fresh session"
+                ),
+            }
+            for forged in [
+                "client-session",
+                "client-controlled-session",
+                "client-request",
+                "client-root",
+            ] {
+                assert!(
+                    !body.to_string().contains(forged),
+                    "case {index}: client-controlled {forged} reached the upstream body"
+                );
+            }
+            // 请求级身份：同次请求共用，且每次推理都更新；不由会话键推导。
+            assert_eq!(body["request_id"], body["chat_record_id"]);
+            assert_eq!(body["request_set_id"], body["business"]["id"]);
+            assert_ne!(body["request_id"], body["request_set_id"]);
+            for key in ["request_id", "request_set_id"] {
+                let id = body[key].as_str().unwrap();
+                assert_eq!(uuid::Uuid::parse_str(id).unwrap().get_version_num(), 4);
+                assert!(
+                    seen_requests.insert(id.to_owned()),
+                    "case {index} reload {reload}: {key} must be new for every inference"
+                );
+            }
+            assert_ne!(body["request_id"], body["session_id"]);
+            assert_ne!(body["request_set_id"], body["session_id"]);
+        }
+    }
+    println!(
+        "identity: stable session mapping across plugin reloads, session isolation, malformed affinity, forged fields, fresh request IDs"
+    );
 }

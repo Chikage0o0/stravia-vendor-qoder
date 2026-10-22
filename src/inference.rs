@@ -937,6 +937,9 @@ fn build_body(
         .and_then(|m| m.get("content"))
         .and_then(Value::as_str)
         .unwrap_or("");
+    // 官方主路径：request_id 与 chat_record_id 同值，每个模型请求新建；
+    // request_set_id 在一个用户提示内复用，business.id 取同一值（Sin 的 id: r||djA()）。
+    // 宿主没有提供请求组或业务级可信源 ID，因此以本次推理为最小生命周期新建。
     let id = uuid::Uuid::new_v4().to_string();
     let request_set_id = uuid::Uuid::new_v4().to_string();
     let mut name_end = 0;
@@ -951,14 +954,14 @@ fn build_body(
     // 正常 CLI 在首轮推理前创建 AgentLifecycle 并进入 start；Qwen 路由依赖此上下文。
     // 标题遵守十个 UTF-16 单元上限，但不生成被截断的半个代理对。
     Ok(json!({
-        "request_id": id, "request_set_id": request_set_id, "session_id": session, "chat_record_id": id,
+        "request_id": id, "request_set_id": &request_set_id, "session_id": session, "chat_record_id": id,
         "stream": true, "chat_task": "FREE_INPUT", "chat_context": {"text":prompt,"features":[],"extra":{"context":[],"modelConfig":{"key":model,"is_reasoning":reasoning},"originalContent":prompt},"chatPrompt":"","imageUrls":null}, "is_reply": true,
         "is_retry": false, "source": 1, "version": "3", "agent_id": "agent_common",
         "task_id": "common", "session_type": if region == Region::Cn {"qoderclicn"} else {"qodercli"}, "aliyun_user_type": "",
         "model_config": config,
         "business": {
             "product": "cli", "version": protocol::CLI_VERSION, "type": "agent",
-            "id": uuid::Uuid::new_v4().to_string(), "name": &prompt[..name_end],
+            "id": &request_set_id, "name": &prompt[..name_end],
             "begin_at": chrono::Utc::now().timestamp_millis(), "stage": "start"
         },
         "system": system, "messages": messages, "tools": tools,
@@ -1779,5 +1782,60 @@ mod tests {
         );
         assert_eq!(body["session_id"], "host-session");
         assert_ne!(body["business"]["id"], "client-business");
+    }
+
+    #[test]
+    fn native_session_id_is_a_stable_cli_uuid_of_the_full_source() {
+        // 稳定身份契约：向量由独立的 SHA-256 实现按
+        // "qoder-session-v1\0" || UTF-8 源 ID 计算，修改须视为身份切换。
+        for (source, expected) in [
+            (
+                "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+                "9fb8b35c-8899-4520-90ae-97a7ffd9ccf4",
+            ),
+            ("user-run-a", "df352d67-b004-4662-8b31-494dc95f5c74"),
+            ("user-run-b", "8da1458d-0507-4290-84e5-b170af8a88ca"),
+            // 中文、CRLF 与 NUL 都按完整字节参与，且不会进入输出。
+            ("你好\r\n\u{0}x", "459ab3ba-9c26-41e5-a5e9-8e60c217ff44"),
+            ("\u{0}", "234bc72d-d33f-46ef-93b9-3c29f5abe840"),
+        ] {
+            assert_eq!(native_session_id(source), expected, "{source:?}");
+            assert_eq!(native_session_id(source), native_session_id(source));
+        }
+        // 不 trim、不改大小写：任何字节差异都是另一条会话。
+        assert_ne!(native_session_id("a"), native_session_id("a "));
+        assert_ne!(native_session_id("a"), native_session_id("A"));
+    }
+
+    #[test]
+    fn request_group_ids_follow_the_normal_cli_lifecycle() {
+        let build = || {
+            build_body(
+                json!({"messages":[{"role":"user","content":"hello"}]}),
+                "remote",
+                "system",
+                &native_session_id("host-session"),
+                Region::Global,
+                None,
+            )
+            .unwrap()
+        };
+        let (first, second) = (build(), build());
+        for body in [&first, &second] {
+            // request_id 与 chat_record_id 同值；request_set_id 与 business.id 同值；两组互相独立。
+            assert_eq!(body["request_id"], body["chat_record_id"]);
+            assert_eq!(body["request_set_id"], body["business"]["id"]);
+            assert_ne!(body["request_id"], body["request_set_id"]);
+            assert_eq!(body["session_id"], native_session_id("host-session"));
+            for key in ["request_id", "request_set_id"] {
+                let id = uuid::Uuid::parse_str(body[key].as_str().unwrap()).unwrap();
+                assert_eq!(id.get_version_num(), 4);
+                assert_eq!(id.hyphenated().to_string(), body[key].as_str().unwrap());
+            }
+        }
+        // 没有可信的请求级源 ID：每次推理新建，不从会话键推导。
+        assert_ne!(first["request_id"], second["request_id"]);
+        assert_ne!(first["request_set_id"], second["request_set_id"]);
+        assert_eq!(first["session_id"], second["session_id"]);
     }
 }
