@@ -30,7 +30,7 @@
 ## 安装与使用
 
 1. 安装 Stravia。
-2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.1.12.wasm`。也可从本仓库 [Releases](https://github.com/Chikage0o0/stravia-vendor-qoder/releases/tag/v0.1.12) 下载对应版本并用 `SHA256SUMS` 校验。
+2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.1.13.wasm`。也可从本仓库 [Releases](https://github.com/Chikage0o0/stravia-vendor-qoder/releases/tag/v0.1.13) 下载对应版本并用 `SHA256SUMS` 校验。
 3. 新建 **Qoder** 供应商连接，选择 `cn` 或 `global`。
 4. 发起浏览器授权，打开返回的网址完成账户选择；超过 5 分钟需重新发起。
 5. 授权完成后同步模型，再按 Stravia 的客户端 API 配置接入。
@@ -233,7 +233,7 @@ vendor/             消息编译器与第三方许可证
 
 ## 变更记录
 
-### 未发布
+### 0.1.13
 
 - 对齐官方 CLI 的会话与请求 ID：`business.id` 改为与同次 `request_set_id` 同值（官方 TUI 与 SDK 主路径的 `Sin(... id: r||djA())`），此前是独立随机 UUID。核对 `1.1.75` 与 `1.1.76` 的 ID 构造点一致；`session_id` 的稳定映射、`request_id` / `chat_record_id` 同值及每次推理重新生成的行为不变，宿主没有请求级可信源时不伪造稳定值。
 - `session_id` 映射 `SHA-256("qoder-session-v1\0" || session_affinity)` 现作为稳定身份契约写入文档，并以固定向量、Unicode/CRLF/NUL、重载一致性和客户端伪造字段隔离的测试固定。修改该算法会使所有已有上游会话身份发生变化。
