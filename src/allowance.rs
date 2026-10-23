@@ -1,7 +1,7 @@
 use crate::{Region, auth, protocol};
 use rust_decimal::Decimal;
 use serde_json::Value;
-use stravia_vendor_common::common;
+use stravia_vendor_common::{account, common, plan};
 use stravia_vendor_sdk::{
     AllowanceAmount, AllowanceItem, AllowanceResponse, ErrorKind, GuestHost, HttpRequest,
     PluginError, ProviderSnapshot, read_http_body,
@@ -50,7 +50,13 @@ pub(crate) fn execute(
         .get("uid")
         .and_then(Value::as_str)
         .ok_or_else(|| malformed("account identity missing"))?;
-    parse(&payload, expected, region)
+    let mut response = parse(&payload, expected, region)?;
+    // 登录/刷新时只保存可读身份；旧凭据没有该键时不展示账号，也不回退到 ID 或组织名。
+    response.account_label = account::first_account_label([provider
+        .credentials
+        .get("account_label")
+        .and_then(Value::as_str)]);
+    Ok(response)
 }
 fn parse(
     payload: &Value,
@@ -146,7 +152,9 @@ fn parse(
     Ok(AllowanceResponse {
         allowances,
         models: Vec::new(),
-        plan_label: Some(user_type.into()),
+        // 套餐只来自已验证的 user_type；机器标识转展示名，上游人类名称原样保留。
+        plan_label: plan::display_name(user_type),
+        account_label: None,
     })
 }
 fn number(value: Option<&Value>) -> Result<Option<Decimal>, PluginError> {

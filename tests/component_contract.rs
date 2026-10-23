@@ -498,6 +498,7 @@ async fn regional_device_catalog_and_quota_contract() {
         assert_eq!(provider.credentials["region"], region.channel);
         assert_eq!(provider.credentials["uid"], "synthetic-user");
         assert_eq!(provider.credentials["access_token"], "synthetic-oauth-one");
+        assert_eq!(provider.credentials["account_label"], "Synthetic User");
         assert_eq!(
             provider.credentials["organization_tags"],
             json!(["synthetic-tag"])
@@ -545,7 +546,14 @@ async fn regional_device_catalog_and_quota_contract() {
         }
 
         local.reply(Reply::json(json!({"device_token":"synthetic-oauth-two","refresh_token":"synthetic-refresh-two","expires_at":"2099-01-01T00:00:00Z","refresh_token_expires_at":"2099-02-01T00:00:00Z"})));
-        account_replies(&local);
+        local.reply(Reply::json(json!({
+            "id":"synthetic-user", "uid":"secondary-profile-uid",
+            "email":" synthetic@example.test ", "username":"synthetic-login",
+            "nickname":"Synthetic Nickname", "name":"Synthetic User",
+            "organization_id":"synthetic-org"
+        })));
+        local.reply(Reply::json(json!({"tags":["synthetic-tag"]})));
+        local.reply(Reply::encoded(json!({"result":{"status":"AGREE"}})));
         provider.credentials = credentials(
             run(
                 &runtime,
@@ -558,6 +566,7 @@ async fn regional_device_catalog_and_quota_contract() {
             .unwrap(),
         );
         assert_eq!(provider.credentials["access_token"], "synthetic-oauth-two");
+        assert_eq!(provider.credentials["account_label"], "synthetic@example.test");
         assert_eq!(
             provider.credentials["refresh_token"],
             "synthetic-refresh-two"
@@ -634,7 +643,7 @@ async fn regional_device_catalog_and_quota_contract() {
             "synthetic-user",
         );
 
-        local.reply(Reply::json(json!({"user_id":"synthetic-user","user_type":"PRO","user_quota":{"total":100,"used":25,"remaining":75,"unit":"credits"}})));
+        local.reply(Reply::json(json!({"user_id":"synthetic-user","user_type":"team_plus","user_quota":{"total":100,"used":25,"remaining":75,"unit":"credits"}})));
         let quota = run(
             &runtime,
             &plugin,
@@ -650,6 +659,8 @@ async fn regional_device_catalog_and_quota_contract() {
         let OperationOutput::Allowance(quota) = quota else {
             panic!("expected quota")
         };
+        assert_eq!(quota.plan_label.as_deref(), Some("Team Plus"));
+        assert_eq!(quota.account_label.as_deref(), Some("synthetic@example.test"));
         let allowance = quota
             .allowances
             .iter()
@@ -674,13 +685,16 @@ async fn regional_device_catalog_and_quota_contract() {
                 "Bearer synthetic-oauth-two"
             );
         }
-        local.reply(Reply::json(json!({"user_id":"synthetic-user","user_type":"PRO","user_quota":{"used":9,"unit":"credits"}})));
+        // 升级前的凭据没有展示标签，额度仍可读取，不拿不透明 ID 或组织冒充账号。
+        let mut legacy = provider.clone();
+        legacy.credentials.remove("account_label");
+        local.reply(Reply::json(json!({"user_id":"synthetic-user","user_type":"Qoder Pro","user_quota":{"used":9,"unit":"credits"}})));
         let partial = run(
             &runtime,
             &plugin,
             region.channel,
             OperationInput::Allowance {
-                provider: provider.clone(),
+                provider: legacy,
                 request: AllowanceRequest::default(),
             },
             local.scope(),
@@ -690,6 +704,8 @@ async fn regional_device_catalog_and_quota_contract() {
         let OperationOutput::Allowance(partial) = partial else {
             panic!("expected partial quota")
         };
+        assert_eq!(partial.plan_label.as_deref(), Some("Qoder Pro"));
+        assert!(partial.account_label.is_none());
         assert_eq!(partial.allowances[0].used.as_ref().unwrap().value, "9");
         assert!(
             partial.allowances[0].limit.is_none() && partial.allowances[0].remaining.is_none(),
@@ -1825,6 +1841,109 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
     }
 }
 
+#[tokio::test]
+#[ignore = "build the release wasm32-wasip2 component first"]
+async fn oauth_refresh_recovery_contract() {
+    let region = REGIONS[0];
+    let runtime = VendorRuntime::new().unwrap();
+    let plugin = runtime.load(&artifact()).await.unwrap();
+    let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+    let mut provider = snapshot(region);
+    run(
+        &runtime,
+        &plugin,
+        region.channel,
+        auth(
+            &provider,
+            AuthStep::Start {
+                redirect_uri: String::new(),
+                state: "synthetic-refresh-recovery".into(),
+            },
+        ),
+        local.scope(),
+    )
+    .await
+    .unwrap();
+    profile_replies(&local, "synthetic-access", "synthetic-refresh");
+    provider.credentials = credentials(
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(&provider, AuthStep::Poll),
+            local.scope(),
+        )
+        .await
+        .unwrap(),
+    );
+    for (status, payload, kind) in [
+        (400, json!({"error":"invalid_grant"}), AiErrorKind::AuthenticationError),
+        (403, json!({"error":"insufficient_permissions"}), AiErrorKind::AuthorizationError),
+        (429, json!({"error":"invalid_grant"}), AiErrorKind::RateLimitError),
+        (503, json!({"error":"invalid_grant"}), AiErrorKind::ServiceUnavailable),
+        (200, json!({}), AiErrorKind::Unknown),
+    ] {
+        local.reply(Reply::status(status, payload));
+        let error = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(&provider, AuthStep::Refresh),
+            local.scope(),
+        )
+        .await
+        .unwrap_err();
+        if kind == AiErrorKind::AuthenticationError {
+            assert!(
+                matches!(error, RuntimeError::Plugin { kind: ErrorKind::Auth, .. }),
+                "refresh HTTP {status}: {error:?}"
+            );
+        } else if kind == AiErrorKind::Unknown {
+            assert!(
+                matches!(error, RuntimeError::Plugin { kind: ErrorKind::Upstream(_), .. }),
+                "malformed response is not revoked authorization: {error:?}"
+            );
+        } else {
+            assert_eq!(error.model_error_kind(), Some(kind), "refresh HTTP {status}");
+        }
+    }
+    let access_expiry = provider.credentials["expire_time"].clone();
+    let refresh_expiry = provider.credentials["refresh_token_expire_time"].clone();
+    for (index, refresh) in [Value::Null, json!(""), json!(" \t ")].into_iter().enumerate() {
+        local.reply(Reply::json(json!({
+            "device_token":"synthetic-next-access", "refresh_token":refresh
+        })));
+        if index == 2 {
+            local.reply(Reply::json(json!({
+                "id":"synthetic-user", "organization_id":"synthetic-org"
+            })));
+            local.reply(Reply::json(json!({"tags":["synthetic-tag"]})));
+            local.reply(Reply::encoded(json!({"result":{"status":"AGREE"}})));
+        } else {
+            account_replies(&local);
+        }
+        provider.credentials = credentials(
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Refresh),
+                local.scope(),
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(provider.credentials["access_token"], "synthetic-next-access");
+        assert_eq!(provider.credentials["refresh_token"], "synthetic-refresh");
+        assert_eq!(provider.credentials["expire_time"], access_expiry);
+        assert_eq!(provider.credentials["refresh_token_expire_time"], refresh_expiry);
+        if index == 2 {
+            assert!(!provider.credentials.contains_key("account_label"));
+        }
+    }
+    assert!(local.replies.lock().is_empty());
+}
+
 // 通过真实 Wasm 的外部边界验证 ID 契约：宿主会话键 → session_id 的确定性转换，
 // 以及请求级 ID 的生命周期；不调用插件内部映射函数。
 #[tokio::test]
@@ -1900,6 +2019,28 @@ async fn native_identity_lifecycle_boundary_contract() {
         ];
         let mut fresh_sessions = std::collections::BTreeSet::new();
         for (index, (affinity, expected)) in cases.iter().enumerate() {
+            if index == 2 {
+                // 令牌轮换不能改变同一宿主作用域的会话身份，也不能重用请求级 ID。
+                let rotated = format!("synthetic-identity-rotated-{reload}");
+                local.reply(Reply::json(json!({"device_token":rotated})));
+                account_replies(&local);
+                provider.credentials = credentials(
+                    run(
+                        &runtime,
+                        &plugin,
+                        region.channel,
+                        auth(&provider, AuthStep::Refresh),
+                        local.scope(),
+                    )
+                    .await
+                    .unwrap(),
+                );
+                assert_eq!(provider.credentials["access_token"], rotated);
+                assert_eq!(
+                    provider.credentials["refresh_token"],
+                    "synthetic-identity-refresh"
+                );
+            }
             let mut call = provider.clone();
             call.operation_metadata.remove("session_affinity");
             if let Some(value) = affinity {

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use stravia_vendor_common::common;
+use stravia_vendor_common::{account, common};
 use stravia_vendor_sdk::{
     AuthRequest, AuthResponse, AuthStep, ErrorKind, GuestHost, HttpRequest, PluginError,
     ProviderSnapshot, read_http_body,
@@ -152,7 +152,7 @@ fn poll(
         None,
         Vec::new(),
         &provider.options,
-        true,
+        RequestKind::DevicePoll,
     )?;
     if status == 404 {
         return Ok(AuthResponse::Pending {
@@ -213,7 +213,7 @@ fn refresh(
         None,
         body,
         &provider.options,
-        false,
+        RequestKind::Refresh,
     )?;
     credentials(
         host,
@@ -223,6 +223,14 @@ fn refresh(
         Some(provider),
         Some(&previous.uid),
         &provider.options,
+    )
+}
+/// 从 userinfo 选取可读账号标识：邮箱优先，其次用户名、昵称、姓名。
+/// 只保存这一项展示文本，不保存完整 profile；ID 与组织名不能替代可读身份。
+fn account_label(profile: &Value) -> Option<String> {
+    account::first_account_label(
+        ["email", "username", "nickname", "name"]
+            .map(|key| profile.get(key).and_then(Value::as_str)),
     )
 }
 fn credentials(
@@ -250,7 +258,7 @@ fn credentials(
         Some(token),
         Vec::new(),
         options,
-        false,
+        RequestKind::Profile,
     )?;
     // 官方 userinfo 的 canonical ID 优先于 uid 别名；两者可能同时存在。
     let uid = ["id", "user_id", "uid"]
@@ -266,6 +274,8 @@ fn credentials(
     if expected.is_some_and(|expected| expected != uid) {
         return Err(error("OAuth credential changed account identity"));
     }
+    // 每次登录/刷新都从当前 profile 重新取值；没有可读身份时不沿用旧标签。
+    let label = account_label(&profile);
     let org = profile
         .get("organization_id")
         .or_else(|| profile.get("orgId"))
@@ -288,7 +298,7 @@ fn credentials(
             Some(token),
             Vec::new(),
             options,
-            false,
+            RequestKind::Profile,
         )?;
         let array = payload
             .get("tags")
@@ -341,7 +351,7 @@ fn credentials(
     let refresh = data
         .get("refresh_token")
         .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.trim().is_empty())
         .or_else(|| old.and_then(|p| p.credentials.get("refresh_token").and_then(Value::as_str)));
     if let Some(refresh) = refresh {
         safe(refresh)?;
@@ -361,6 +371,9 @@ fn credentials(
             serde_json::to_value(identity).map_err(|_| malformed("cannot save identity"))?,
         ),
     ]);
+    if let Some(label) = label {
+        values.insert("account_label".into(), json!(label));
+    }
     if let Some(token) = refresh {
         values.insert("refresh_token".into(), json!(token));
     }
@@ -479,6 +492,12 @@ fn epoch(value: i64) -> i64 {
         value.saturating_mul(1000)
     }
 }
+enum RequestKind {
+    DevicePoll,
+    Refresh,
+    Profile,
+}
+
 fn request(
     host: &GuestHost,
     method: &str,
@@ -486,10 +505,10 @@ fn request(
     token: Option<&str>,
     body: Vec<u8>,
     options: &BTreeMap<String, Value>,
-    device_poll: bool,
+    kind: RequestKind,
 ) -> Result<(u16, Value), PluginError> {
     let mut headers = vec![("Accept".into(), "application/json".into())];
-    if !device_poll {
+    if !matches!(kind, RequestKind::DevicePoll) {
         headers.push((
             "User-Agent".into(),
             format!("qoder/{}", protocol::CLI_VERSION),
@@ -515,11 +534,16 @@ fn request(
     let status = response.status()?;
     let response_headers = response.headers()?;
     let bytes = read_http_body(&response, MAX_BODY)?;
-    if device_poll && status == 404 {
+    if matches!(kind, RequestKind::DevicePoll) && status == 404 {
         return Ok((status, Value::Null));
     }
     if !(200..300).contains(&status) {
-        let mut error = common::upstream_error(status, &response_headers, &bytes);
+        let mut error = match kind {
+            RequestKind::DevicePoll | RequestKind::Refresh => {
+                common::oauth_token_error(status, &response_headers, &bytes)
+            }
+            RequestKind::Profile => common::upstream_error(status, &response_headers, &bytes),
+        };
         error.message = format!("Qoder OAuth HTTP {status}");
         return Err(error);
     }
@@ -529,6 +553,55 @@ fn request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn account_label_prefers_trimmed_readable_identity() {
+        let profile = json!({
+            "id": "u-1",
+            "organization_id": "org-1",
+            "email": "  user@example.test  ",
+            "username": "alice",
+            "nickname": "Alice",
+            "name": "Alice Example"
+        });
+        assert_eq!(
+            account_label(&profile).as_deref(),
+            Some("user@example.test")
+        );
+        assert_eq!(
+            account_label(&json!({"username":" alice ","nickname":"Alice","name":"Alice Example"}))
+                .as_deref(),
+            Some("alice")
+        );
+        assert_eq!(
+            account_label(&json!({"nickname":" Alice ","name":"Alice Example"})).as_deref(),
+            Some("Alice")
+        );
+        assert_eq!(
+            account_label(&json!({"name":"Alice Example"})).as_deref(),
+            Some("Alice Example")
+        );
+    }
+    #[test]
+    fn account_label_ignores_blank_and_opaque_identity() {
+        assert_eq!(
+            account_label(&json!({
+                "id": "u-1",
+                "user_id": "u-1",
+                "uid": "u-1",
+                "organization_id": "org-1",
+                "orgId": "org-1",
+                "email": "   ",
+                "username": "\t",
+                "nickname": "",
+                "name": "  "
+            })),
+            None
+        );
+        assert_eq!(
+            account_label(&json!({"id":"u-1","organization_id":"org-1"})),
+            None
+        );
+    }
     #[test]
     fn expiry_accepts_native_iso_and_relative() {
         assert_eq!(
