@@ -7,8 +7,8 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use stravia_vendor_common::{account, common};
 use stravia_vendor_sdk::{
-    AuthRequest, AuthResponse, AuthStep, ErrorKind, GuestHost, HttpRequest, PluginError,
-    ProviderSnapshot, read_http_body,
+    AuthRequest, AuthResponse, AuthStep, ConnectionCheckResponse, ConnectionCheckVerification,
+    ErrorKind, GuestHost, HttpRequest, PluginError, ProviderSnapshot, read_http_body,
 };
 const MAX_BODY: usize = 256 * 1024;
 #[derive(Serialize, Deserialize)]
@@ -28,6 +28,9 @@ fn error(message: &str) -> PluginError {
 }
 fn malformed(message: &str) -> PluginError {
     common::plugin_error(ErrorKind::upstream_unknown(), message)
+}
+fn invalid_response(message: &str) -> PluginError {
+    common::plugin_error(ErrorKind::InvalidResponse, message)
 }
 pub(crate) fn execute(
     host: &GuestHost,
@@ -233,6 +236,15 @@ fn account_label(profile: &Value) -> Option<String> {
             .map(|key| profile.get(key).and_then(Value::as_str)),
     )
 }
+/// 官方 userinfo 的 canonical ID 优先于 uid 别名；两者可能同时存在。
+fn account_id(profile: &Value) -> Option<&str> {
+    ["id", "user_id", "uid"].iter().find_map(|key| {
+        profile
+            .get(*key)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+    })
+}
 fn credentials(
     host: &GuestHost,
     region: Region,
@@ -260,16 +272,7 @@ fn credentials(
         options,
         RequestKind::Profile,
     )?;
-    // 官方 userinfo 的 canonical ID 优先于 uid 别名；两者可能同时存在。
-    let uid = ["id", "user_id", "uid"]
-        .iter()
-        .find_map(|key| {
-            profile
-                .get(*key)
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty())
-        })
-        .ok_or_else(|| malformed("userinfo has no account identity"))?;
+    let uid = account_id(&profile).ok_or_else(|| malformed("userinfo has no account identity"))?;
     safe(uid)?;
     if expected.is_some_and(|expected| expected != uid) {
         return Err(error("OAuth credential changed account identity"));
@@ -452,6 +455,50 @@ pub(crate) fn oauth_token(
         .and_then(Value::as_str)
         .ok_or_else(|| error("OAuth token missing"))
 }
+/// 连接检查只读一次 userinfo：不刷新、不组织请求、不写状态、不触发模型同步。
+pub(crate) fn check_connection(
+    host: &GuestHost,
+    provider: &ProviderSnapshot,
+    region: Region,
+) -> Result<ConnectionCheckResponse, PluginError> {
+    if !crate::models::validate(&provider.options).issues.is_empty() {
+        return Err(common::plugin_error(
+            ErrorKind::Invalid,
+            "invalid Qoder connection options",
+        ));
+    }
+    // 凭据区域与内部一致性必须在出站前校验，避免用错误账号发起检查。
+    let token = oauth_token(provider, region)?;
+    let (_, profile) = request(
+        host,
+        "GET",
+        format!("{}/api/v1/userinfo", region.openapi_origin()),
+        Some(token),
+        Vec::new(),
+        &provider.options,
+        RequestKind::ConnectionCheck,
+    )?;
+    // 2xx 中的 error 信封不是一次成功的账号读取。
+    if profile.get("error").is_some_and(|error| !error.is_null()) {
+        return Err(invalid_response("Qoder userinfo returned an error envelope"));
+    }
+    let uid =
+        account_id(&profile).ok_or_else(|| invalid_response("userinfo has no account identity"))?;
+    safe(uid).map_err(|_| {
+        invalid_response("Qoder userinfo account identity contains unsafe characters")
+    })?;
+    let stored = provider
+        .credentials
+        .get("uid")
+        .and_then(Value::as_str)
+        .ok_or_else(|| error("Qoder account identity missing"))?;
+    if uid != stored {
+        return Err(error("Qoder connection check found another account"));
+    }
+    Ok(ConnectionCheckResponse {
+        verified: ConnectionCheckVerification::Credentials,
+    })
+}
 fn safe(value: &str) -> Result<(), PluginError> {
     if value.is_empty() || !value.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
         Err(error("credential contains unsafe header characters"))
@@ -492,10 +539,13 @@ fn epoch(value: i64) -> i64 {
         value.saturating_mul(1000)
     }
 }
+#[derive(Clone, Copy)]
 enum RequestKind {
     DevicePoll,
     Refresh,
     Profile,
+    /// 连接检查只读 userinfo，响应结构错误必须与认证流程区分。
+    ConnectionCheck,
 }
 
 fn request(
@@ -542,12 +592,23 @@ fn request(
             RequestKind::DevicePoll | RequestKind::Refresh => {
                 common::oauth_token_error(status, &response_headers, &bytes)
             }
-            RequestKind::Profile => common::upstream_error(status, &response_headers, &bytes),
+            RequestKind::Profile | RequestKind::ConnectionCheck => {
+                common::upstream_error(status, &response_headers, &bytes)
+            }
         };
-        error.message = format!("Qoder OAuth HTTP {status}");
+        error.message = match kind {
+            RequestKind::ConnectionCheck => format!("Qoder connection check HTTP {status}"),
+            _ => format!("Qoder OAuth HTTP {status}"),
+        };
         return Err(error);
     }
-    let data = serde_json::from_slice(&bytes).map_err(|_| malformed("invalid OAuth JSON"))?;
+    let data = serde_json::from_slice(&bytes).map_err(|_| {
+        if matches!(kind, RequestKind::ConnectionCheck) {
+            invalid_response("Qoder connection check response is not valid JSON")
+        } else {
+            malformed("invalid OAuth JSON")
+        }
+    })?;
     Ok((status, data))
 }
 #[cfg(test)]

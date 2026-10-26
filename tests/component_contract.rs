@@ -21,8 +21,9 @@ use stravia_vendor_runtime::{
     LogLevel, OperationScope, RuntimeError, RuntimeEvent, VendorRuntime, WsRequest,
 };
 use stravia_vendor_sdk::{
-    AllowanceRequest, AuthRequest, AuthResponse, AuthStep, DiscoverRequest, ErrorKind,
-    OperationInput, OperationOutput, ProviderSnapshot,
+    AllowanceRequest, AuthRequest, AuthResponse, AuthStep, ConnectionCheckRequest,
+    ConnectionCheckVerification, DiscoverRequest, ErrorKind, OperationInput, OperationOutput,
+    ProviderSnapshot,
 };
 
 struct Reply {
@@ -52,6 +53,13 @@ impl Reply {
             chunks: Mutex::new(VecDeque::from([reference_encode(
                 &serde_json::to_vec(&body).unwrap(),
             )])),
+        }
+    }
+    fn raw(body: &str) -> Self {
+        Self {
+            status: 200,
+            headers: vec![("content-type".into(), "application/json".into())],
+            chunks: Mutex::new(VecDeque::from([body.as_bytes().to_vec()])),
         }
     }
     fn stream(body: &str, chunk_size: usize) -> Self {
@@ -224,6 +232,58 @@ fn auth(provider: &ProviderSnapshot, step: AuthStep) -> OperationInput {
     OperationInput::Auth {
         provider: provider.clone(),
         request: AuthRequest { step },
+    }
+}
+
+fn connection_check(provider: &ProviderSnapshot) -> OperationInput {
+    OperationInput::ConnectionCheck {
+        provider: provider.clone(),
+        request: ConnectionCheckRequest {},
+    }
+}
+
+enum CheckExpect {
+    InvalidResponse,
+    Auth,
+    Invalid,
+    Model(AiErrorKind),
+}
+
+fn expect_check_error(error: &RuntimeError, expected: CheckExpect, label: &str) {
+    match expected {
+        CheckExpect::InvalidResponse => assert!(
+            matches!(
+                error,
+                RuntimeError::Plugin {
+                    kind: ErrorKind::InvalidResponse,
+                    ..
+                }
+            ),
+            "{label}: {error:?}"
+        ),
+        CheckExpect::Auth => assert!(
+            matches!(
+                error,
+                RuntimeError::Plugin {
+                    kind: ErrorKind::Auth,
+                    ..
+                }
+            ),
+            "{label}: {error:?}"
+        ),
+        CheckExpect::Invalid => assert!(
+            matches!(
+                error,
+                RuntimeError::Plugin {
+                    kind: ErrorKind::Invalid,
+                    ..
+                }
+            ),
+            "{label}: {error:?}"
+        ),
+        CheckExpect::Model(kind) => {
+            assert_eq!(error.model_error_kind(), Some(kind), "{label}: {error:?}")
+        }
     }
 }
 
@@ -1942,6 +2002,364 @@ async fn oauth_refresh_recovery_contract() {
         }
     }
     assert!(local.replies.lock().is_empty());
+}
+
+// 连接检查是只读凭据探针：真实 Wasm 边界上只发一次固定 userinfo GET，
+// 成功仅由匹配的账号身份证明凭据可用，且不触碰状态、事件或生成链路。
+#[tokio::test]
+#[ignore = "build the release wasm32-wasip2 component first"]
+async fn connection_check_region_credentials_contract() {
+    const TOKEN: &str = "synthetic-check-access";
+    const REFRESH: &str = "synthetic-check-refresh";
+    let runtime = VendorRuntime::new().unwrap();
+    let plugin = runtime.load(&artifact()).await.unwrap();
+    for region in REGIONS {
+        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let mut provider = snapshot(region);
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(
+                &provider,
+                AuthStep::Start {
+                    redirect_uri: String::new(),
+                    state: "synthetic-check-state".into(),
+                },
+            ),
+            local.scope(),
+        )
+        .await
+        .unwrap();
+        profile_replies(&local, TOKEN, REFRESH);
+        provider.credentials = credentials(
+            run(
+                &runtime,
+                &plugin,
+                region.channel,
+                auth(&provider, AuthStep::Poll),
+                local.scope(),
+            )
+            .await
+            .unwrap(),
+        );
+        assert!(local.replies.lock().is_empty());
+        local.requests.lock().clear();
+        local.events.lock().clear();
+        let state = local.state.lock().clone();
+        let cases = [
+            (
+                "canonical id outranks the uid alias",
+                json!({"id":"synthetic-user","uid":"secondary-profile-uid"}),
+            ),
+            ("user_id fallback", json!({"user_id":"synthetic-user"})),
+            ("uid fallback", json!({"uid":"synthetic-user"})),
+            (
+                "non-string id falls back to user_id",
+                json!({"id":7,"user_id":"synthetic-user"}),
+            ),
+            (
+                "empty id falls back to uid",
+                json!({"id":"","uid":"synthetic-user"}),
+            ),
+        ];
+        for (label, body) in cases {
+            local.reply(Reply::json(body));
+            let output = run(
+                &runtime,
+                &plugin,
+                region.channel,
+                connection_check(&provider),
+                local.scope(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{label}: {error:?}"));
+            let OperationOutput::ConnectionCheck(response) = output else {
+                panic!("{label}: expected a connection check result")
+            };
+            assert_eq!(
+                response.verified,
+                ConnectionCheckVerification::Credentials,
+                "{label}: only the credentials were proven"
+            );
+            let requests = local.requests.lock();
+            assert_eq!(requests.len(), 1, "{label}: exactly one userinfo read");
+            let probe = &requests[0];
+            assert_eq!(probe.method, "GET", "{label}");
+            assert_eq!(
+                probe.url,
+                format!("{}/api/v1/userinfo", region.openapi),
+                "{label}: the check reads the fixed regional account endpoint"
+            );
+            assert!(probe.body.is_empty(), "{label}: a read has no body");
+            assert_eq!(
+                header(probe, "Authorization"),
+                format!("Bearer {TOKEN}").as_str(),
+                "{label}"
+            );
+            assert!(
+                probe
+                    .headers
+                    .iter()
+                    .all(|(_, value)| !value.contains(REFRESH)),
+                "{label}: the refresh credential must not leave the plugin"
+            );
+            drop(requests);
+            local.requests.lock().clear();
+            assert!(
+                local.replies.lock().is_empty(),
+                "{label}: the check must not send another request"
+            );
+            assert!(
+                local.events.lock().is_empty(),
+                "{label}: the check must not emit events"
+            );
+            assert_eq!(
+                *local.state.lock(),
+                state,
+                "{label}: the check must not write private state"
+            );
+        }
+        println!(
+            "{}: connection check proves the stored account through one userinfo read",
+            region.channel
+        );
+    }
+}
+
+// 连接检查的错误边界：协议错误、账号不一致、HTTP 分类与出站前配置/凭据拒绝；
+// 所有失败都不得回显凭据或上游响应。
+#[tokio::test]
+#[ignore = "build the release wasm32-wasip2 component first"]
+async fn connection_check_rejection_contract() {
+    const TOKEN: &str = "synthetic-check-access";
+    const REFRESH: &str = "synthetic-check-refresh";
+    const MARKER: &str = "synthetic-check-response-marker";
+    let region = REGIONS[0];
+    let other = REGIONS[1];
+    let runtime = VendorRuntime::new().unwrap();
+    let plugin = runtime.load(&artifact()).await.unwrap();
+    let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+    let mut provider = snapshot(region);
+    run(
+        &runtime,
+        &plugin,
+        region.channel,
+        auth(
+            &provider,
+            AuthStep::Start {
+                redirect_uri: String::new(),
+                state: "synthetic-check-rejection".into(),
+            },
+        ),
+        local.scope(),
+    )
+    .await
+    .unwrap();
+    profile_replies(&local, TOKEN, REFRESH);
+    provider.credentials = credentials(
+        run(
+            &runtime,
+            &plugin,
+            region.channel,
+            auth(&provider, AuthStep::Poll),
+            local.scope(),
+        )
+        .await
+        .unwrap(),
+    );
+    local.requests.lock().clear();
+    local.events.lock().clear();
+    let state = local.state.lock().clone();
+    let cases = [
+        (
+            "missing identity",
+            200,
+            Reply::json(json!({})),
+            CheckExpect::InvalidResponse,
+        ),
+        (
+            "identity of the wrong type",
+            200,
+            Reply::json(json!({"id":7,"user_id":false,"uid":[]})),
+            CheckExpect::InvalidResponse,
+        ),
+        (
+            "empty identities",
+            200,
+            Reply::json(json!({"id":"","user_id":"","uid":""})),
+            CheckExpect::InvalidResponse,
+        ),
+        (
+            "unsafe account identity",
+            200,
+            Reply::json(json!({"id":"synthetic-user\r\n"})),
+            CheckExpect::InvalidResponse,
+        ),
+        (
+            "2xx error envelope",
+            200,
+            Reply::json(json!({"id":"synthetic-user","error":{"message":MARKER}})),
+            CheckExpect::InvalidResponse,
+        ),
+        (
+            "invalid JSON body",
+            200,
+            Reply::raw("synthetic connection check is not JSON"),
+            CheckExpect::InvalidResponse,
+        ),
+        (
+            "another account",
+            200,
+            Reply::json(json!({"id":"another-account","uid":"synthetic-user"})),
+            CheckExpect::Auth,
+        ),
+        (
+            "unauthorized",
+            401,
+            Reply::status(401, json!({"error":{"message":MARKER}})),
+            CheckExpect::Model(AiErrorKind::AuthenticationError),
+        ),
+        (
+            "forbidden",
+            403,
+            Reply::status(403, json!({"error":{"message":MARKER}})),
+            CheckExpect::Model(AiErrorKind::AuthorizationError),
+        ),
+        (
+            "rate limited",
+            429,
+            Reply::status(429, json!({"error":{"message":MARKER}})),
+            CheckExpect::Model(AiErrorKind::RateLimitError),
+        ),
+        (
+            "unavailable",
+            503,
+            Reply::status(503, json!({"error":{"message":MARKER}})),
+            CheckExpect::Model(AiErrorKind::ServiceUnavailable),
+        ),
+    ];
+    for (label, status, reply, expected) in cases {
+        local.reply(reply);
+        let error = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            connection_check(&provider),
+            local.scope(),
+        )
+        .await
+        .unwrap_err();
+        expect_check_error(&error, expected, label);
+        if (200..300).contains(&status) {
+            assert_eq!(
+                error.upstream_status(),
+                None,
+                "{label}: a protocol error is not an HTTP failure"
+            );
+        } else {
+            assert_eq!(error.upstream_status(), Some(status), "{label}");
+        }
+        let diagnostic = error.diagnostic_message().unwrap_or_default();
+        for leaked in [TOKEN, REFRESH, MARKER] {
+            assert!(
+                !diagnostic.contains(leaked),
+                "{label}: the diagnostic must not echo {leaked}"
+            );
+            assert!(
+                !format!("{error:?}").contains(leaked),
+                "{label}: the error must not echo {leaked}"
+            );
+        }
+        let requests = local.requests.lock();
+        assert_eq!(requests.len(), 1, "{label}: one userinfo read, no retry");
+        assert_eq!(
+            requests[0].url,
+            format!("{}/api/v1/userinfo", region.openapi),
+            "{label}"
+        );
+        assert_eq!(
+            header(&requests[0], "Authorization"),
+            format!("Bearer {TOKEN}").as_str(),
+            "{label}"
+        );
+        assert!(
+            requests[0]
+                .headers
+                .iter()
+                .all(|(_, value)| !value.contains(REFRESH)),
+            "{label}: the refresh credential must not leave the plugin"
+        );
+        drop(requests);
+        local.requests.lock().clear();
+        assert!(local.replies.lock().is_empty(), "{label}");
+        assert!(local.events.lock().is_empty(), "{label}");
+        assert_eq!(*local.state.lock(), state, "{label}");
+    }
+    let mut missing = provider.clone();
+    missing.credentials.clear();
+    let mut crossed = provider.clone();
+    crossed.credentials.insert("region".into(), json!(other.channel));
+    let mut inconsistent = provider.clone();
+    inconsistent
+        .credentials
+        .insert("subject_id".into(), json!("synthetic-other-subject"));
+    let mut relocated = provider.clone();
+    relocated.base_url = other.infer.into();
+    let mut illegal = provider.clone();
+    illegal
+        .options
+        .insert("machine_os".into(), json!("synthetic_os"));
+    let mut unknown = provider.clone();
+    unknown.options.insert("model_ids".into(), json!(["ignored"]));
+    let preflight = [
+        ("missing credentials", missing, CheckExpect::Auth),
+        (
+            "credentials from another region",
+            crossed,
+            CheckExpect::Auth,
+        ),
+        (
+            "inconsistent credential identity",
+            inconsistent,
+            CheckExpect::Auth,
+        ),
+        (
+            "base URL outside the selected region",
+            relocated,
+            CheckExpect::Invalid,
+        ),
+        ("invalid client options", illegal, CheckExpect::Invalid),
+        ("unknown client options", unknown, CheckExpect::Invalid),
+    ];
+    for (label, candidate, expected) in preflight {
+        let error = run(
+            &runtime,
+            &plugin,
+            region.channel,
+            connection_check(&candidate),
+            local.scope(),
+        )
+        .await
+        .unwrap_err();
+        expect_check_error(&error, expected, label);
+        assert_eq!(
+            error.upstream_status(),
+            None,
+            "{label}: rejected before egress"
+        );
+        assert!(
+            local.requests.lock().is_empty(),
+            "{label}: rejected before egress"
+        );
+        assert!(local.replies.lock().is_empty(), "{label}");
+        assert!(local.events.lock().is_empty(), "{label}");
+        assert_eq!(*local.state.lock(), state, "{label}");
+    }
+    assert!(local.replies.lock().is_empty());
+    println!(
+        "connection check: protocol/account/HTTP classification, redaction, and pre-egress rejection"
+    );
 }
 
 // 通过真实 Wasm 的外部边界验证 ID 契约：宿主会话键 → session_id 的确定性转换，
