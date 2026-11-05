@@ -1329,6 +1329,7 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
 #[ignore = "build the release wasm32-wasip2 component first"]
 async fn official_cli_cache_boundaries_and_chain_identity_contract() {
     use stravia_runtime_contract::protocol::ir::{ContentBlock, MessageContent, Role};
+    use stravia_runtime_contract::protocol::ir::response::mark_response_history;
     let runtime = VendorRuntime::new().unwrap();
     let plugin = runtime.load(&artifact()).await.unwrap();
     let region = REGIONS[0];
@@ -1409,6 +1410,17 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
     ]);
     let mut empty_tail = request();
     empty_tail.items[0].content = MessageContent::Blocks(vec![text("before empty"), text("")]);
+    let mut response_boundaries = request();
+    response_boundaries.items = serde_json::from_value(json!([
+        {"role":"assistant","content":"first "},
+        {"role":"assistant","content":"response"},
+        {"role":"assistant","content":"second response"},
+        {"role":"assistant","content":"client message"},
+        {"role":"user","content":"continue"}
+    ]))
+    .unwrap();
+    mark_response_history(&mut response_boundaries.items[..2], "synthetic-response-1");
+    mark_response_history(&mut response_boundaries.items[2..3], "synthetic-response-2");
     let expected_call = json!([{
         "id":"call_boundary","type":"function","index":0,
         "function":{"name":"weather","arguments":"{\"city\":\"杭州\"}"}
@@ -1445,12 +1457,23 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
             json!([{"role":"user","content":"before empty","contents":[{"type":"text","text":"before empty"}]}]),
         ),
         (
+            "response boundaries separate turns without splitting one response",
+            response_boundaries,
+            json!([
+                {"role":"assistant","content":"first response","contents":[{"type":"text","text":"first "},{"type":"text","text":"response"}]},
+                {"role":"assistant","content":"second response","contents":[{"type":"text","text":"second response"}]},
+                {"role":"assistant","content":"client message","contents":[{"type":"text","text":"client message"}]},
+                {"role":"user","content":"continue","contents":[{"type":"text","text":"continue","cache_control":{"type":"ephemeral"}}]}
+            ]),
+        ),
+        (
             "normal user text is normalized before automatic cache selection",
             request(),
             json!([{"role":"user","content":"你好","contents":[{"type":"text","text":"你好","cache_control":{"type":"ephemeral"}}]}]),
         ),
     ];
     let mut previous_ids: Option<(Value, Value)> = None;
+    let last_case = cases.len() - 1;
     for (index, (label, mut input, expected)) in cases.into_iter().enumerate() {
         input.meta.vendor.ingress.insert(
             "__stravia_generation_session_id".into(),
@@ -1460,7 +1483,7 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
             "source_session_id".into(),
             json!("client-controlled-source"),
         );
-        let expected_session = if index == 4 {
+        let expected_session = if index == last_case {
             provider.operation_metadata.insert(
                 "session_affinity".into(),
                 json!("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"),

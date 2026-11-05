@@ -155,6 +155,7 @@ fn parse(
         // 套餐只来自已验证的 user_type；机器标识转展示名，上游人类名称原样保留。
         plan_label: plan::display_name(user_type),
         account_label: None,
+        billing: None,
     })
 }
 fn number(value: Option<&Value>) -> Result<Option<Decimal>, PluginError> {

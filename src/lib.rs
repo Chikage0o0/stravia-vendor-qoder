@@ -139,11 +139,6 @@ impl VendorGuest for Qoder {
                 provider,
                 request: _,
             } => allowance::execute(host, &provider, region).map(OperationOutput::Allowance),
-            OperationInput::ConnectionCheck {
-                provider,
-                request: _,
-            } => auth::check_connection(host, &provider, region)
-                .map(OperationOutput::ConnectionCheck),
             OperationInput::ConfigValidation {
                 provider: _,
                 request,
@@ -152,6 +147,15 @@ impl VendorGuest for Qoder {
             ))),
             _ => Err(common::unsupported(operation.as_str(), VENDOR_ID, channel)),
         }
+    }
+
+    fn check_connection(
+        host: &GuestHost,
+        channel: &str,
+        provider: ProviderSnapshot,
+    ) -> Result<stravia_vendor_sdk::ConnectionCheckResponse, PluginError> {
+        let region = admit(channel, &provider)?;
+        auth::check_connection(host, &provider, region)
     }
 }
 

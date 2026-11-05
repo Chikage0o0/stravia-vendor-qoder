@@ -9,6 +9,7 @@ use stravia_runtime_contract::protocol::ir::{
     AiRequest, CacheTtl, ContentBlock, MediaSource, MessageContent, Role, ToolChoice,
     ToolResultContentKind,
 };
+use stravia_runtime_contract::protocol::ir::response::RESPONSE_HISTORY_GROUP_META;
 use stravia_vendor_common::common;
 use stravia_vendor_sdk::{
     AiErrorKind, AiStreamDelta, ErrorKind, GuestHost, OperationOutput, PluginError,
@@ -222,9 +223,22 @@ fn project_request(request: &AiRequest, supports_vision: bool) -> Result<Value, 
     let mut messages = Vec::with_capacity(request.items.len());
     let mut message_index = 0;
     // Responses 的 reasoning/message/function_call 是内容项，不是独立的 assistant 轮。
-    // 先恢复一轮的内容，再按官方 UWc 投影，避免发出孤立思考和拆开的并行调用。
+    // 恢复同轮内容，但不能跨越宿主保存的响应边界或合并已标记与未标记的历史。
     for group in request.items.chunk_by(|left, right| {
-        left.role == right.role && matches!(left.role, Role::Assistant | Role::User)
+        left.role == right.role
+            && match left.role {
+                Role::User => true,
+                Role::Assistant => {
+                    left.meta
+                        .as_ref()
+                        .and_then(|meta| meta.get(RESPONSE_HISTORY_GROUP_META))
+                        == right
+                            .meta
+                            .as_ref()
+                            .and_then(|meta| meta.get(RESPONSE_HISTORY_GROUP_META))
+                }
+                _ => false,
+            }
     }) {
         let first = &group[0];
         // Fgi 在一条原生消息内回找缓存块，不能跨 user/tool 边界回退。

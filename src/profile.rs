@@ -16,7 +16,6 @@ pub(crate) fn descriptor() -> VendorDescriptor {
         Capability::ModelDiscovery,
         Capability::Allowance,
         Capability::ConfigValidation,
-        Capability::ConnectionCheck,
     ]);
     let channels = [Region::Cn, Region::Global]
         .into_iter()
