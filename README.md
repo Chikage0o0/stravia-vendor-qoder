@@ -31,11 +31,34 @@
 
 ## 安装与使用
 
-1. 安装支持插件声明并编译专属出站形状的配套 Stravia 宿主；旧宿主不认识 `plugin:qoder-cli`，不会回退至内建形状。升级宿主后必须重建并重新导入组件。
-2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.3.0.wasm`。本轮版本尚未发布；[历史 Releases](https://github.com/Chikage0o0/stravia-vendor-qoder/releases) 的组件使用其各自的宿主契约，不能替代当前本地构建。
+1. 安装支持插件市场 v2、且支持插件声明并编译专属出站形状 `plugin:qoder-cli` 的配套 Stravia 宿主；旧宿主不认识该形状，不会回退至内建形状。升级宿主后必须重新安装组件。
+2. 在供应商插件页面添加来源 `https://github.com/Chikage0o0/stravia-vendor-qoder`，核对来源公钥的完整指纹后确认信任，再预览并安装 Qoder。可从 [Releases](https://github.com/Chikage0o0/stravia-vendor-qoder/releases) 下载 `.wasm.zst` 本地导入；本地导入仍为 unverified，不会自动建立受信任的市场来源。0.3.0 尚未发布，历史 Releases 的组件使用其各自的宿主契约，不能替代当前构建。
 3. 新建 **Qoder** 供应商连接，选择 `cn` 或 `global`。
 4. 发起浏览器授权，打开返回的网址完成账户选择；超过 5 分钟需重新发起。
 5. 授权完成后同步模型，再按 Stravia 的客户端 API 配置接入。
+
+首次添加第三方来源是 TOFU：公钥和目录可能经过同一网络路径，必须通过独立渠道核对完整指纹（Minisign 公钥二进制 payload 的 SHA-256，而非短 key ID）。目录签名仅认证固定公钥对应的发布者，不代表 Qoder 官方发布、代码经过自动安全审查或插件安全；安装前仍须自行评估凭据和网络权限。
+
+### 构建与发布插件目录
+
+需要 Python 3.11+、Task、Minisign、Rust 和 `wasm32-wasip2`。SDK 依赖由 `Cargo.toml` 的 git tag 固定，无需相邻 checkout；v2 目录工具 `stravia-tools plugin-catalog` 须取自同一 Platform tag（或包含该工具、与 `Cargo.lock` 相容的 checkout）。已有的宿主工具二进制也可通过绝对路径直接使用，无需在此仓库复制发布实现。
+
+本地示例（使用独立测试密钥；不要把密钥或密码放进仓库）：
+
+```bash
+export STRAVIA_TOOLS=/absolute/path/to/stravia-tools
+export HOST_VERSION_REQ='>=0.7.0' # 示例值；发布前须由维护者评估兼容范围
+export REPOSITORY_ID=1403877632 RELEASE_TAG=v0.3.0
+export PUBLISHED_AT=2026-11-10T00:00:00Z
+export PLUGIN_SIGNING_KEY_FILE=/secure/test-minisign.key
+export PLUGIN_PUBLIC_KEY_FILE=/secure/test-minisign.pub
+export PLUGIN_SIGNING_PASSWORD='<test password>'
+task dist
+```
+
+`task dist` 构建组件，使用共享工具读取真实 descriptor、生成并回环验证 level-19 单 frame Zstd 和 v2 目录，然后用独立 Minisign 密钥签名并验签，核对压缩资产大小和摘要。输出为 `dist/stravia-vendor-qoder-v0.3.0.wasm.zst`、`stravia-plugin-catalog.json`、`.json.minisig`、`stravia-plugin-catalog.pub` 和三个许可证文件；不发布原始 `.wasm` 或 `SHA256SUMS`。成功验签后，脚本清理旧入口生成的 `dist/stravia-vendor-qoder-v*.wasm` 和 `dist/SHA256SUMS`，其余用户文件保留。发布时 tag 必须与 Cargo 版本一致，时间必须为 RFC 3339，宿主范围必须由维护者明确评估。
+
+GitHub 发布前须配置 repository variables `HOST_VERSION_REQ`、`STRAVIA_PLUGIN_CATALOG_PUBLIC_KEY`（完整公钥文本），以及 secrets `STRAVIA_PLUGIN_CATALOG_SIGNING_KEY`（配对的加密私钥文本）、`STRAVIA_PLUGIN_CATALOG_SIGNING_PASSWORD`。插件目录密钥独立于 Desktop updater；生产密钥在受控离线环境生成和保管，勿使用测试密钥。工作流按 tag checkout 本仓库，并按 `Cargo.toml` 固定的 Platform tag checkout 主仓库，构建共享工具和组件、运行现有测试、生成并验签目录，以明确文件清单创建 draft；下载并核对实际资产和签名后才公开。已有同 tag Release 不覆盖，失败保留 draft 供人工处理。历史 Release 不补造目录或签名。
 
 例如，使用 Stravia 默认统一入口：
 
@@ -207,7 +230,9 @@ CLI 的 `skipCacheWrite=true` 侧路依赖其工作流状态；当前 canonical 
 
 五个 Stravia 依赖（`stravia-vendor-sdk`、`stravia-vendor-common`、`stravia-runtime-contract`、`stravia-protocol-codec` 及 dev 依赖 `stravia-vendor-runtime`）通过 git tag 固定到 [`StraviaPlatform` v0.7.0](https://github.com/Stravia-AI/StraviaPlatform/releases/tag/v0.7.0)，由 Cargo 直接拉取，无需本地 `StraviaPlatform/` checkout，`Cargo.lock` 锁定到该 tag 的具体提交。升级基线时同步修改 `Cargo.toml` 中五处 `tag`，核对 SDK、protocol-codec 与 vendor-runtime 契约，并通过构建及真实组件验证。
 
-品牌图标由 `assets/qoder.svg` 编译进 Wasm，无需运行时下载。它使用 [Qoder 官方 SVG](https://qoder.com/favIcon.svg) 的原始路径，去掉底色并转为透明单色，以适配 Stravia 的浅色和深色主题。显示图标需要同时使用更新后的宿主并重新导入插件；归属及授权边界见 [NOTICE](NOTICE)。
+发布工作流编译插件时不需要主仓库 checkout，但会按 `Cargo.toml` 中的同一 tag 检出主仓库到 `source/StraviaPlatform`，仅用于构建共享目录工具 `stravia-tools`（`plugin-catalog` 子命令）。因此无需 `STRAVIA_PLATFORM_REF` 变量，目录工具与插件依赖也不会漂移；仍须配置 `HOST_VERSION_REQ` 与签名密钥。
+
+品牌图标由 `assets/qoder.svg` 编译进 Wasm，无需运行时下载。它基于 [Qoder 官方 SVG](https://qoder.com/favIcon.svg)，去掉底色并转为透明单色，以适配 Stravia 的浅色和深色主题；路径经优化以满足市场目录 32 KiB 的图标上限，保留原标志外形。显示图标需要同时使用更新后的宿主并重新导入插件；归属及授权边界见 [NOTICE](NOTICE)。
 
 依赖 Rust `1.99.1`、`wasm32-wasip2` target，以及可选的 [Task](https://taskfile.dev)。工具链由 `rust-toolchain.toml` 固定。
 
@@ -220,7 +245,7 @@ HTTP 响应编码声明保序及首次去重修复已进入上游 [`ff6db7f4`](h
 cargo build --locked --release --lib --target wasm32-wasip2
 # target/wasm32-wasip2/release/stravia_vendor_qoder.wasm
 
-# 构建并打包组件、许可证和校验和
+# 按上文配置工具和独立密钥，生成压缩组件、签名目录与许可证
 task dist
 
 # 单元测试
@@ -251,7 +276,7 @@ STRAVIA_TOOLS=/absolute/path/to/stravia-tools task verify-egress-shape
 - 协议对齐阶段曾通过 20 组 SDK 等价输入与官方黄金向量的 JSON 语义差分；随机 ID、时间和传入会话归一化，业务标题由官方 `E_a` 独立计算。实际出站同时检查 Fetch 默认头、三种响应编码策略及稳定合成身份。该历史差分本次未重新执行。
 - 配套宿主在此前协议对齐阶段通过 6 项 HTTP 编码/解码测试及 2 项真实 TCP 编码协商测试，覆盖声明保序、首次去重、空列表 `identity`、响应白名单、截断及流式边界；本次未重跑这些宿主测试。Wasm mock 回复不冒充宿主 HTTP 解压验证。
 
-官方原始场景保存在 `tests/fixtures/qoder_cli_1_1_75_body_cases.json`。差分中的显式缓存使用直接 SDK `CacheControl`，因为本轮 Anthropic 入口转换已将该单文本块折为字符串；非标准 `JPG` MIME 也使用直接 SDK 媒体输入，不声称 Anthropic wire 接受它。SDK 没有对应的历史清除控制，等价 CLI 输入不提供 `generation.reasoning.preserve=false`。完整合成输入、正文、差分范围及组件 SHA-256 保存在本地生成的 `target/qoder-cli-1.1.75-parity-report.json`，其中不保存认证请求头。该报告对应协议对齐时的发布前构建，下载附件的校验和以对应 Release 的 `SHA256SUMS` 为准。这些验证没有访问生产账号。
+官方原始场景保存在 `tests/fixtures/qoder_cli_1_1_75_body_cases.json`。差分中的显式缓存使用直接 SDK `CacheControl`，因为本轮 Anthropic 入口转换已将该单文本块折为字符串；非标准 `JPG` MIME 也使用直接 SDK 媒体输入，不声称 Anthropic wire 接受它。SDK 没有对应的历史清除控制，等价 CLI 输入不提供 `generation.reasoning.preserve=false`。完整合成输入、正文、差分范围及组件 SHA-256 保存在本地生成的 `target/qoder-cli-1.1.75-parity-report.json`，其中不保存认证请求头。该报告对应协议对齐时的发布前构建；新版附件的压缩与组件摘要以验签后的插件目录为准，历史 Release 的 `SHA256SUMS` 仅适用于其旧附件。这些验证没有访问生产账号。
 
 独立组件 smoke 已运行，包含固定版本宿主的原始 `credential_bundle_from_response` 函数和 `CredentialBundle` 类型：旧 `0.1.5` 产物因缺少标准访问令牌被拒收，修复版通过凭据接收及元数据 JSON 往返，并继续完成模型、额度、中文文本、推理、分片工具参数和 usage。组件回归同时确认刷新时不同的 canonical 账号仍被拒绝；缺少 `event:finish` 和跨区域凭据也被拒绝。这部分验证不调用真实账号。
 
@@ -289,7 +314,7 @@ npm `1.1.85` 包的离线静态检查显示其 `$br` 请求构造器仍将 `requ
 
 上游互操作协议固定使用 AES-CBC、RSA PKCS#1 v1.5 和 MD5 签名；这些选择不是新设计的通用安全协议，不应在其他场景复用。传输依赖 HTTPS，安全熵失败时明确报错，不使用伪随机降级。
 
-Release workflow 由 `v*` tag 触发，也可在 GitHub Actions 的 Run workflow 中填写现有版本标签手动重跑。工作流始终检出该标签，版本必须与 `Cargo.toml` 一致；构建后先运行单元测试和实际 Wasm 组件契约，再发布附件。已有同名 Release 附件会保留，避免 CI 重建覆盖人工发布且已真实验证的产物。构建命令本身不发布、不推送。附件包含组件、`SHA256SUMS`、`LICENSE`、`NOTICE` 和第三方组件许可证。
+Release workflow 由 `v*` tag 触发，也可在 GitHub Actions 的 Run workflow 中填写现有版本标签运行。工作流始终检出该标签，版本必须与 `Cargo.toml` 一致；构建后先运行单元测试和实际 Wasm 组件契约，再按上文签名、创建 draft 并验证上传字节，最后公开。已有同 tag Release 会使创建失败，不覆盖其附件；失败留下的 draft 需要维护者检查处理后再运行。构建和本地 `task dist` 本身不发布、不推送。
 
 ## 项目结构
 
@@ -311,7 +336,8 @@ vendor/             消息编译器与第三方许可证
 
 ### 0.3.0
 
-- 五个 Stravia 依赖由 `../StraviaPlatform/backend/crates/...` 本地路径改为 git tag 依赖，固定到 `StraviaPlatform` v0.7.0（`Cargo.lock` 锁定 `7b9274f6`）；发布工作流不再检出主仓库，`STRAVIA_PLATFORM_REF` 变量随之移除。`scripts/vendor_alignment.py` 不再使用 `--host-repo` / `STRAVIA_PLATFORM_DIR`，改为按 `Cargo.toml` 的同一 tag 稀疏浅克隆共享 harness。已在该基线上通过 34 项单元测试和 10 项真实 Wasm 契约；未访问真实账号。
+- 五个 Stravia 依赖由 `../StraviaPlatform/backend/crates/...` 本地路径改为 git tag 依赖，固定到 `StraviaPlatform` v0.7.0（`Cargo.lock` 锁定 `7b9274f6`）；编译插件不再需要主仓库 checkout，`STRAVIA_PLATFORM_REF` 变量随之移除。`scripts/vendor_alignment.py` 不再使用 `--host-repo` / `STRAVIA_PLATFORM_DIR`，改为按 `Cargo.toml` 的同一 tag 稀疏浅克隆共享 harness。已在该基线上通过 34 项单元测试和 10 项真实 Wasm 契约；未访问真实账号。
+- 接入插件市场 v2：改用单 frame Zstd、独立 Minisign 签名目录与公钥分发；共享宿主工具负责 descriptor 准入、压缩回环和双摘要，CI 验证 draft 资产后才公开，不再发布原始 Wasm 与 `SHA256SUMS`。发布工作流仅为构建 `stravia-tools` 而检出 `Cargo.toml` 固定的同一 Platform tag，并要求显式配置宿主版本范围和独立签名密钥。优化现有单色图标至 32 KiB 以下，未修改推理、认证或网络权限。
 
 ### 0.2.0
 
