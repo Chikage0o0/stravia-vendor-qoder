@@ -1,7 +1,9 @@
 include!("../tests/component_contract.rs");
 use std::io::Write;
 
-struct PipeHost;
+struct PipeHost {
+    shapes: std::collections::BTreeSet<String>,
+}
 
 #[async_trait]
 impl HostServices for PipeHost {
@@ -10,7 +12,15 @@ impl HostServices for PipeHost {
         key: &str,
         value: &str,
     ) -> Result<(), stravia_vendor_sdk::net::OptionError> {
-        validate_qoder_option(key, value)
+        use stravia_vendor_sdk::net;
+        net::validate_host_option(key, value)?;
+        if key == net::keys::SHAPE && value != "default" && !self.shapes.contains(value) {
+            return Err(net::OptionError {
+                key: key.into(),
+                value: value.into(),
+            });
+        }
+        Ok(())
     }
 
     fn http_start(
@@ -104,8 +114,14 @@ async fn main() {
         .unwrap()
         .decode_request(config["request"].clone())
         .unwrap();
+    let shapes = plugin
+        .descriptor()
+        .egress_shapes
+        .iter()
+        .map(|shape| format!("plugin:{}", shape.name))
+        .collect();
     let scope = OperationScope::new(
-        Arc::new(PipeHost),
+        Arc::new(PipeHost { shapes }),
         CancellationToken::new(),
         Deadline::from_now(Duration::from_secs(180)),
         1,

@@ -32,7 +32,7 @@
 ## 安装与使用
 
 1. 安装支持插件市场 v2、且支持插件声明并编译专属出站形状 `plugin:qoder-cli` 的配套 Stravia 宿主；旧宿主不认识该形状，不会回退至内建形状。升级宿主后必须重新安装组件。
-2. 在供应商插件页面添加来源 `https://github.com/Chikage0o0/stravia-vendor-qoder`，核对来源公钥的完整指纹后确认信任，再预览并安装 Qoder。可从 [Releases](https://github.com/Chikage0o0/stravia-vendor-qoder/releases) 下载 `.wasm.zst` 本地导入；本地导入仍为 unverified，不会自动建立受信任的市场来源。0.3.0 尚未发布，历史 Releases 的组件使用其各自的宿主契约，不能替代当前构建。
+2. 在供应商插件页面添加来源 `https://github.com/Chikage0o0/stravia-vendor-qoder`，核对来源公钥的完整指纹后确认信任，再预览并安装 Qoder。可从 [Releases](https://github.com/Chikage0o0/stravia-vendor-qoder/releases) 下载 `.wasm.zst` 本地导入；本地导入仍为 unverified，不会自动建立受信任的市场来源。0.3.0 起使用插件市场 v2 签名目录；此前 Releases 的组件使用其各自的宿主契约，不能替代当前构建。
 3. 新建 **Qoder** 供应商连接，选择 `cn` 或 `global`。
 4. 发起浏览器授权，打开返回的网址完成账户选择；超过 5 分钟需重新发起。
 5. 授权完成后同步模型，再按 Stravia 的客户端 API 配置接入。
@@ -268,7 +268,9 @@ STRAVIA_TOOLS=/absolute/path/to/stravia-tools task verify-egress-shape
 
 当前 Stravia runtime 接受受限接口集合中的稳定 WASI `0.2.x` 版本，包括 SDK 与 Rust 标准库的混合 patch 版本；接口函数和资源类型仍须匹配。组件契约测试加载实际产物验证这些导入，不修改宿主白名单或二进制导入名称绕过检查。
 
-以下为旧 dev 基线上的历史离线验证，不代表当前接口迁移后的结果；当前迁移尚须重新构建及验证：
+0.3.0 发布前已在固定的 v0.7.0 SDK 基线上重新构建，通过 34 项单元测试、10 项真实 Wasm 契约和 CN / Global 两份 ClientHello 离线对照。独立 `protocol_smoke` 通过 Responses 字符串入口返回 `QODER_RELEASE_030_OK` 与 14 token 合成 usage，并确认出站选择 `plugin:qoder-cli` 和 `gzip, deflate, br, zstd`。这些验证不访问真实账号或生产服务，也不代表桌面安装界面已验证。
+
+以下为旧 dev 基线上的历史离线验证，不代表当前接口迁移后的结果：
 
 - 当时 dev 适配通过 34 项单元测试；保留官方 `1.1.65` 的全合成密码学向量，并覆盖思考激活优先级、目录档位筛选、缓存及非空思考签名边界、会话 ID 固定向量、请求组 ID 生命周期和可读账号选择。
 - 当时通过 10 项真实 Wasm 组件契约，覆盖两区域登录、刷新、模型、额度、原生签名、反序并行工具结果及任意字节切块 SSE；正文夹具保持官方 `1.1.75` 正常链输出。账号与套餐展示、旧凭据无标签、刷新不沿用过期标签、明确授权拒绝与暂时错误分类、空白 refresh token 回退和过期时间保留均继续通过；身份边界另覆盖凭据轮换后会话不变。两项连接检查契约通过新版必需接口验证两区域账号 ID 优先级与回退、只读副作用边界、畸形响应、账号变化、HTTP 错误分类、错误脱敏，以及凭据、区域、地址和配置错误的出站前拒绝。消息边界契约新增不同响应及已标记/未标记历史场景：旧投影先复现错误合并，修复后通过，并保留同响应内容合并。
@@ -338,6 +340,7 @@ vendor/             消息编译器与第三方许可证
 
 - 五个 Stravia 依赖由 `../StraviaPlatform/backend/crates/...` 本地路径改为 git tag 依赖，固定到 `StraviaPlatform` v0.7.0（`Cargo.lock` 锁定 `7b9274f6`）；编译插件不再需要主仓库 checkout，`STRAVIA_PLATFORM_REF` 变量随之移除。`scripts/vendor_alignment.py` 不再使用 `--host-repo` / `STRAVIA_PLATFORM_DIR`，改为按 `Cargo.toml` 的同一 tag 稀疏浅克隆共享 harness。已在该基线上通过 34 项单元测试和 10 项真实 Wasm 契约；未访问真实账号。
 - 接入插件市场 v2：改用单 frame Zstd、独立 Minisign 签名目录与公钥分发；共享宿主工具负责 descriptor 准入、压缩回环和双摘要，CI 验证 draft 资产后才公开，不再发布原始 Wasm 与 `SHA256SUMS`。发布工作流仅为构建 `stravia-tools` 而检出 `Cargo.toml` 固定的同一 Platform tag，并要求显式配置宿主版本范围和独立签名密钥。优化现有单色图标至 32 KiB 以下，未修改推理、认证或网络权限。
+- 修复独立 `protocol_smoke` 对已移除校验辅助函数的调用，按实际组件 descriptor 校验插件形状声明。发布前通过两区域 ClientHello 对照和独立 Responses 推理冒烟，返回 `QODER_RELEASE_030_OK` 与 14 token 合成 usage；不调用真实账号。
 
 ### 0.2.0
 
