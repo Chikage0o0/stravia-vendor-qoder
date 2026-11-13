@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 use stravia_vendor_common::{account, common};
 use stravia_vendor_sdk::{
     AuthRequest, AuthResponse, AuthStep, ConnectionCheckResponse, ConnectionCheckVerification,
-    ErrorKind, GuestHost, HttpRequest, PluginError, ProviderSnapshot, read_http_body,
+    ErrorKind, GuestHost, PluginError, ProviderSnapshot,
+    net::{Fields, Request},
+    read_http_body,
 };
 const MAX_BODY: usize = 256 * 1024;
 #[derive(Serialize, Deserialize)]
@@ -480,7 +482,9 @@ pub(crate) fn check_connection(
     )?;
     // 2xx 中的 error 信封不是一次成功的账号读取。
     if profile.get("error").is_some_and(|error| !error.is_null()) {
-        return Err(invalid_response("Qoder userinfo returned an error envelope"));
+        return Err(invalid_response(
+            "Qoder userinfo returned an error envelope",
+        ));
     }
     let uid =
         account_id(&profile).ok_or_else(|| invalid_response("userinfo has no account identity"))?;
@@ -557,24 +561,22 @@ fn request(
     options: &BTreeMap<String, Value>,
     kind: RequestKind,
 ) -> Result<(u16, Value), PluginError> {
-    let mut headers = vec![("Accept".into(), "application/json".into())];
+    let mut headers = Fields::new();
+    headers.append("Accept", "application/json");
     if !matches!(kind, RequestKind::DevicePoll) {
-        headers.push((
-            "User-Agent".into(),
-            format!("qoder/{}", protocol::CLI_VERSION),
-        ));
+        headers.append("User-Agent", format!("qoder/{}", protocol::CLI_VERSION));
     }
     protocol::add_client_headers(&mut headers, options, "", false)?;
     if method == "POST" {
-        headers.push(("Content-Type".into(), "application/json".into()));
+        headers.append("Content-Type", "application/json");
     }
     if let Some(token) = token {
         safe(token)?;
-        headers.push(("Authorization".into(), format!("Bearer {token}")));
+        headers.append("Authorization", format!("Bearer {token}"));
     }
     let response = protocol::start_http(
         host,
-        HttpRequest {
+        Request {
             method: method.into(),
             url,
             headers,

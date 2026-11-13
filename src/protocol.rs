@@ -11,8 +11,8 @@ use serde_json::Value;
 use sha2::Sha256;
 use stravia_vendor_common::common;
 use stravia_vendor_sdk::{
-    ErrorKind, GuestHost, HttpCompression, HttpContentCoding, HttpRequest, HttpResponse,
-    PluginError, ValidationIssue,
+    ErrorKind, GuestHost, PluginError, ValidationIssue,
+    net::{self, Coding, Fields, Options, Request},
 };
 use zeroize::Zeroizing;
 
@@ -160,7 +160,7 @@ pub(crate) fn validate_client_options(options: &BTreeMap<String, Value>) -> Vec<
 }
 
 pub(crate) fn add_client_headers(
-    headers: &mut Vec<(String, String)>,
+    headers: &mut Fields,
     options: &BTreeMap<String, Value>,
     machine_id: &str,
     inference: bool,
@@ -185,15 +185,13 @@ pub(crate) fn add_client_headers(
     } else {
         None
     };
-    headers.retain(|(name, _)| {
-        !name.eq_ignore_ascii_case("Cosy-MachineOS")
-            && !name.eq_ignore_ascii_case("Cosy-MachineHostname")
-    });
+    headers.remove("Cosy-MachineOS");
+    headers.remove("Cosy-MachineHostname");
     add_default_header(headers, "Cosy-Version", CLI_VERSION);
     add_default_header(headers, "Cosy-ClientType", "5");
-    headers.push(("Cosy-MachineOS".into(), os.to_owned()));
+    headers.append("Cosy-MachineOS", os.as_bytes());
     if let Some(hostname) = hostname {
-        headers.push(("Cosy-MachineHostname".into(), hostname));
+        headers.append("Cosy-MachineHostname", hostname.into_bytes());
     }
     Ok(())
 }
@@ -397,44 +395,59 @@ pub(crate) fn decode_server_response(raw: &[u8]) -> Result<Value, PluginError> {
     }
 }
 
-fn add_default_header(headers: &mut Vec<(String, String)>, name: &str, value: &str) {
-    if !headers
-        .iter()
-        .any(|(key, _)| key.eq_ignore_ascii_case(name))
-    {
-        headers.push((name.to_owned(), value.to_owned()));
+fn add_default_header(headers: &mut Fields, name: &str, value: &str) {
+    if headers.get(name).is_none() {
+        headers.append(name, value.as_bytes());
     }
 }
 
 pub(crate) fn start_http(
     host: &GuestHost,
-    mut request: HttpRequest,
-) -> Result<HttpResponse, PluginError> {
-    // 官方正常发送链使用 bundled Undici Fetch；显式业务头优先于其默认值。
-    add_default_header(&mut request.headers, "Accept-Language", "*");
-    add_default_header(&mut request.headers, "Sec-Fetch-Mode", "cors");
-    add_default_header(&mut request.headers, "User-Agent", "undici");
+    mut request: Request,
+) -> Result<net::HttpResponse, PluginError> {
+    // 官方 standalone 的 Bun Fetch 先排序业务字段，再追加运行时生成字段。
+    // npm/Node 的 Undici 顺序及浏览器默认字段不适用于这个入口。
+    add_default_header(&mut request.headers, "Connection", "keep-alive");
+    let mut fields = std::mem::take(&mut request.headers).into_vec();
+    fields.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+    for field in fields {
+        request.headers.append(field.name, field.bytes);
+    }
+    add_default_header(&mut request.headers, "User-Agent", "Bun/1.4.2");
+    if request.headers.get("Host").is_none() {
+        request.headers.slot("Host");
+    }
     let signed_get = request.method == "GET"
-        && request.headers.iter().any(|(name, value)| {
-            name.eq_ignore_ascii_case("Authorization") && value.starts_with("Bearer COSY.")
-        });
-    // 官方认证 GET 的签名器选择 identity；其他 Fetch 请求协商 gzip/deflate/br。
-    // HTTP 内容编码仍由宿主协商和流式解码，body_encode 是独立的应用层字节。
-    host.http_start_with_compression(
-        request,
-        HttpCompression {
-            request: None,
-            response: if signed_get {
-                Vec::new()
-            } else {
-                vec![
-                    HttpContentCoding::Br,
-                    HttpContentCoding::Gzip,
-                    HttpContentCoding::Deflate,
-                ]
-            },
+        && request
+            .headers
+            .get("Authorization")
+            .is_some_and(|value| value.starts_with(b"Bearer COSY."));
+    // Net 不再自动生成协商字段，签名 GET 使用 identity。
+    add_default_header(
+        &mut request.headers,
+        "Accept-Encoding",
+        if signed_get {
+            "identity"
+        } else {
+            "gzip, deflate, br, zstd"
         },
-    )
+    );
+    if request.method == "POST" && request.headers.get("content-length").is_none() {
+        request.headers.slot("Content-Length");
+    }
+    // 应用层 body_encode 与宿主 HTTP 解压相互独立。
+    let mut options = Options::new();
+    options
+        .shape("plugin:qoder-cli")
+        .map_err(|_| common::plugin_error(ErrorKind::Invalid, "Invalid Qoder transport shape"))?;
+    options
+        .response_decoding(if signed_get {
+            &[]
+        } else {
+            &[Coding::Gzip, Coding::Deflate, Coding::Br, Coding::Zstd]
+        })
+        .map_err(|_| common::plugin_error(ErrorKind::Invalid, "Invalid Qoder transport options"))?;
+    host.http_start(request, &options)
 }
 
 pub(crate) fn prepare(
@@ -445,7 +458,7 @@ pub(crate) fn prepare(
     raw_body: &[u8],
     model_key: Option<&str>,
     model_source: Option<&str>,
-) -> Result<HttpRequest, PluginError> {
+) -> Result<Request, PluginError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| failure("Qoder signing clock precedes Unix epoch"))?
@@ -478,7 +491,7 @@ fn prepare_at(
     model_source: Option<&str>,
     now: u64,
     random: [u8; 16],
-) -> Result<HttpRequest, PluginError> {
+) -> Result<Request, PluginError> {
     let signed_path = path.split('?').next().unwrap_or(path);
     if !signed_path.starts_with("/api/v2/") || path.contains(['\r', '\n', '#']) {
         return Err(common::plugin_error(
@@ -543,7 +556,7 @@ fn prepare_at(
     }
     let authorization = format!("Bearer COSY.{payload}.{:x}", digest.finalize());
     // 白名单采用逐字段构造；客户端头（包括同名签名/身份头）一律不参与。
-    let mut headers = vec![
+    let mut headers: Vec<(String, String)> = vec![
         (
             "Accept".into(),
             if inference {
@@ -588,8 +601,7 @@ fn prepare_at(
         ));
     }
     if inference {
-        headers.push(("Cache-Control".into(), "no-cache".into()));
-        headers.push(("Connection".into(), "keep-alive".into()));
+        headers.insert(2, ("Cache-Control".into(), "no-cache".into()));
         // 官方 CLI JS 仅在真实 UMID 可用时保留机器令牌及类型；
         // 原生 HTTP 不伪造 UMID，因此省略 WASM 默认生成的这两个头。
         if let Some(key) = model_key.filter(|key| !key.is_empty()) {
@@ -599,19 +611,41 @@ fn prepare_at(
             }
         }
     } else {
-        headers.push(("Cosy-ClientIp".into(), identity.machine_id.clone()));
-        headers.push(("Cosy-MachineToken".into(), identity.machine_id.clone()));
-        headers.push(("Cosy-MachineType".into(), "5".into()));
+        // 认证 GET 的签名器本身按该顺序提供 identity 和机器字段。
+        if method == "GET" {
+            headers.insert(1, ("Accept-Encoding".into(), "identity".into()));
+        }
+        let client_type = headers
+            .iter()
+            .position(|(name, _)| name == "Cosy-ClientType")
+            .expect("signed client type");
+        headers.insert(
+            client_type,
+            ("Cosy-ClientIp".into(), identity.machine_id.clone()),
+        );
+        let machine = headers
+            .iter()
+            .position(|(name, _)| name == "Cosy-MachineId")
+            .expect("signed machine id");
+        headers.insert(
+            machine + 1,
+            ("Cosy-MachineToken".into(), identity.machine_id.clone()),
+        );
+        headers.insert(machine + 2, ("Cosy-MachineType".into(), "5".into()));
     }
     let origin = if signed_path == "/api/v2/config/getDataPolicy" {
         region.center_origin()
     } else {
         region.infer_origin()
     };
-    Ok(HttpRequest {
+    let mut fields = Fields::new();
+    for (name, value) in headers {
+        fields.append(name, String::into_bytes(value));
+    }
+    Ok(Request {
         method: method.to_owned(),
         url: format!("{origin}/algo{path}"),
-        headers,
+        headers: fields,
         body: encoded_body.into_bytes(),
     })
 }
@@ -639,29 +673,26 @@ mod tests {
                 ("machine_os".into(), serde_json::json!("aarch64_linux")),
                 ("machine_hostname".into(), serde_json::json!(configured)),
             ]);
-            let mut headers = vec![("Authorization".into(), "synthetic-signature".into())];
+            let mut headers = Fields::new();
+            headers.append("Authorization", b"synthetic-signature".as_slice());
             add_client_headers(&mut headers, &options, "synthetic-machine", true).unwrap();
-            assert!(
-                headers
-                    .iter()
-                    .any(|(name, value)| name == "Cosy-MachineHostname" && value == expected)
+            assert_eq!(
+                headers.get("Cosy-MachineHostname"),
+                Some(expected.as_bytes())
             );
-            assert!(
-                headers
-                    .iter()
-                    .any(|(name, value)| name == "Cosy-MachineOS" && value == "aarch64_linux")
+            assert_eq!(
+                headers.get("Cosy-MachineOS"),
+                Some(b"aarch64_linux".as_slice())
             );
-            assert_eq!(headers[0].1, "synthetic-signature");
+            assert_eq!(headers.iter().next().unwrap().bytes, b"synthetic-signature");
         }
         let options =
             BTreeMap::from([("machine_hostname".into(), serde_json::json!("a".repeat(97)))]);
-        let mut headers = Vec::new();
+        let mut headers = Fields::new();
         add_client_headers(&mut headers, &options, "synthetic-machine", true).unwrap();
-        assert!(
-            headers
-                .iter()
-                .any(|(name, value)| name == "Cosy-MachineHostname"
-                    && value == &format!("{}-2a2c60fe", "a".repeat(87)))
+        assert_eq!(
+            headers.get("Cosy-MachineHostname"),
+            Some(format!("{}-2a2c60fe", "a".repeat(87)).as_bytes())
         );
     }
 
@@ -684,7 +715,8 @@ mod tests {
         ] {
             assert!(!validate_client_options(&options).is_empty());
             assert!(
-                add_client_headers(&mut Vec::new(), &options, "synthetic-machine", true).is_err()
+                add_client_headers(&mut Fields::new(), &options, "synthetic-machine", true)
+                    .is_err()
             );
         }
     }
@@ -701,12 +733,11 @@ mod tests {
         }
     }
 
-    fn header<'a>(request: &'a HttpRequest, name: &str) -> Option<&'a str> {
+    fn header<'a>(request: &'a Request, name: &str) -> Option<&'a str> {
         request
             .headers
-            .iter()
-            .find(|(key, _)| key == name)
-            .map(|(_, value)| value.as_str())
+            .get(name)
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
     }
 
     // 以下向量来自官方 1.1.65 认证 WASM，仅使用合成身份及确定性熵。

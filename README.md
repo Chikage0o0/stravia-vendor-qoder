@@ -31,8 +31,8 @@
 
 ## 安装与使用
 
-1. 安装 Stravia。
-2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.1.13.wasm`。也可从本仓库 [Releases](https://github.com/Chikage0o0/stravia-vendor-qoder/releases/tag/v0.1.13) 下载对应版本并用 `SHA256SUMS` 校验。
+1. 安装支持插件声明并编译专属出站形状的配套 Stravia 宿主；旧宿主不认识 `plugin:qoder-cli`，不会回退至内建形状。升级宿主后必须重建并重新导入组件。
+2. 本地运行 `task dist`，在 Stravia 的供应商插件页面导入 `dist/stravia-vendor-qoder-v0.3.0.wasm`。本轮版本尚未发布；[历史 Releases](https://github.com/Chikage0o0/stravia-vendor-qoder/releases) 的组件使用其各自的宿主契约，不能替代当前本地构建。
 3. 新建 **Qoder** 供应商连接，选择 `cn` 或 `global`。
 4. 发起浏览器授权，打开返回的网址完成账户选择；超过 5 分钟需重新发起。
 5. 授权完成后同步模型，再按 Stravia 的客户端 API 配置接入。
@@ -45,6 +45,58 @@ API Key:  由 Stravia 访问控制配置决定
 ```
 
 上面的 API Key 是 Stravia 客户端访问密钥，不是 Qoder 令牌。Qoder 凭据由 Stravia 宿主持久化；本插件不读取本机 CLI 认证文件，也不把上游令牌交给客户端。
+
+## 版本对齐与真实验证
+
+两条路径互相独立：本插件通过宿主 Core 网络栈调用上游，不启动 CLI；官方 CLI 捕获仅用于观察 CLI 本身，不能代替插件真实请求。以下均不要求重新登录 CLI，也不把已有 Stravia 凭据写入脚本或命令行。
+
+### 插件路径
+
+在已构建当前 Wasm 后，从本仓库运行：
+
+```sh
+python3 scripts/vendor_alignment.py \
+  --data-root /path/to/stravia-data --scenario discover --output /private/qoder-report.json
+# 明确确认产生上游请求及可能消耗额度后，才添加 --allow-live；推理可另加 --scenario infer --model MODEL_ID。
+```
+
+脚本从 `Cargo.toml` 读取 Stravia 依赖固定的 git tag（当前 v0.7.0），首次运行时稀疏浅克隆该 tag 的共享 harness 到 `target/host-<tag>/`，之后复用；不需要本地 `StraviaPlatform/` checkout。`--allow-live` 还须用 `--runner` 或 `STRAVIA_ALIGNMENT_RUNNER` 指定由同一 tag 宿主源码预先构建的 Core 单元测试可执行文件。组件默认 `target/wasm32-wasip2/release/stravia_vendor_qoder.wasm`，可用 `--component` 指定其他构建产物。场景可重复指定 `infer`、`media-image`、`discover`、`allowance`；是否支持以插件及上游实际结果为准。不带 `--allow-live` 只读清单、不联网；真实执行使用数据目录已有连接，不通过 CLI 登录、刷新或撤销凭据。报告中的请求一致性与真实上游业务成功应分别判断，认证通过、合成应答和 401 都不能证明真实推理成功。应将报告写入私有目录，并核对共享 harness 的实际输出边界。
+
+### 官方 CLI 隔离捕获
+
+使用 Linux 交互终端，需 `unshare`、`mount`、`ip`、`openssl` 和可用的 user/mount/network namespace。官方默认安装路径提供原生 standalone，和 npm 包在 Node 中运行是不同入口，不应混为同一指纹。下面使用官方 1.1.75 Linux amd64 发行物；脚本对提取后的可执行文件校验版本及固定 SHA-256，并要求 `--site` 与发行物一致：
+
+- CN：官方[安装脚本](https://qoder.com.cn/install)指向 `https://static.qoder.com.cn/qoder-cli-cn`；[1.1.75 manifest](https://static.qoder.com.cn/qoder-cli-cn/channels/1.1.75/manifest.json) 中 `qoderclicn-linux-x64.tar.gz` 的 SHA-256 为 `55d3d947a9e67240677c0847d02252de5210abe2f0bf2debb9bcf58e2b0738cf`；提取出的 `qoderclicn` 为 `49d6e014df9fb636bf50d2c2ff68d4a42f6952c8de763e3b065ac2312948a17c`。
+- Global：官方[安装脚本](https://qoder.com/install)指向 `https://qoder-ide.oss-accelerate.aliyuncs.com/qodercli`；[1.1.75 manifest](https://qoder-ide.oss-accelerate.aliyuncs.com/qodercli/channels/1.1.75/manifest.json) 中 `qodercli-linux-x64.tar.gz` 的 SHA-256 为 `6207478eda10efca0e2bea20c57c3c890c0cc82bd79c149be8f8c95931d72637`；提取出的 `qodercli` 为 `f64099d3d9516c4e324df775545c035877551bfd5b4d69650f90422acbcc9289`。
+
+```sh
+# 从相应官方 manifest 下载并校验压缩包、提取后，二选一：
+python3 scripts/capture_official_cli.py --executable /path/to/qoderclicn \
+  --site cn --version 1.1.75 --no-refresh-fixture --temp-parent /dev/shm \
+  --output /private/qoder-cn-summary.json
+python3 scripts/capture_official_cli.py --executable /path/to/qodercli \
+  --site global --version 1.1.75 --no-refresh-fixture --temp-parent /dev/shm \
+  --output /private/qoder-global-summary.json
+# npm 包的不同 Node 入口仍可单独观察：
+python3 scripts/capture_official_cli.py --package /path/to/extracted/package \
+  --version 1.1.75 --node /path/to/node --output /private/qoder-npm-summary.json
+```
+
+脚本创建自动清理的私有临时 HOME（`--temp-parent` 可指定其父目录；`/dev/shm` 在可用时为 tmpfs），在独立网络命名空间只启用 loopback，并将官方域名指向本地合成 TLS 服务。终端内走默认交互 PTY：仅输入合成内容，选择登录及信任临时目录，完成后用 `/exit` 退出；不要粘贴密码或真实令牌。`--no-refresh-fixture` 不在合成设备授权中提供 refresh token，并对主请求及辅助请求提供直接合成应答；它**不限制请求次数**。默认不加该选项时的 Read 工具续接也是合成数据。
+
+`--restore-readonly` 在第一轮合成登录退出后，对合成 auth 目录作只读 bind mount 并重启默认交互 CLI；第二轮也须退出。可同时加 `--sdk-auth-interactive`，仅在第二轮设置内容为 `{"type":"qodercli"}` 的无令牌 SDK payload，用于观察是否实际初始化该上下文；该选项要求 `--restore-readonly`。CN native 1.1.75 合成实测中默认交互没有消费该 payload，也没有建立 SDK 的 read-only/`refreshStrategy: none` 上下文，而是正常恢复本地会话。SDK 的 print/stream-json 路径与默认交互不同，不能据此声称等价；payload 读取器会记录前 32 字节，绝不能把凭据写进去。
+
+报告按 connection ID 关联请求和 ClientHello，保留有序 TLS 套件、扩展编号及长度、支持版本和已知 ALPN；记录完整有序 HTTP 头名称，仅保留安全静态值和受限格式的公开 User-Agent，其余值脱敏。正文仅保留长度、SHA-256、字段 schema 和固定合成提示标记是否命中，不保存原文、查询串、令牌、终端记录或响应。提示可使用 `QODER_SYNTHETIC_CAPTURE_MARKER_8274`；`operation_context=main_agent_loop` 来源于合成日志与 trace 的关联，不能把长度启发式当作主请求证明。原生模式通过只记录版本的 preload 取得实际 Bun 及 Node 兼容版本；npm 模式记录实际 Node 版本与入口哈希。捕获错误或没有观察到 infer 返回非零；临时 CA 仅供隔离进程信任，不关闭 TLS 校验。
+
+CN 和 global native 的一次合成交互各观察到主请求、标题和建议共三次推理请求；这是本地 fixture 的观察，**不证明线上请求次数、官方服务接受请求或插件真实推理成功**。脚本不提供可安全使用生产凭据的 live 入口：只读存储不能阻止刷新，现有全传输栈请求路径/次数 guard 尚未证明不可绕过，禁止将真实凭据交给此脚本。
+
+可选 `--credentials-fd FD` 从继承的文件描述符读取仅含 `token`、`user_id` 的 JSON；两个值必须以 `synthetic-` 开头，只用于本地合成设备授权，不可传真实凭据。不要在参数、stdout、报告或仓库中放置密钥。正常退出或异常时临时目录会清理；被强制终止时请人工删除指定临时父目录内残留的 `qoder-capture-*`。
+
+1.1.75 的合成登录会话已用官方 bundle 内嵌 WASM 离线解密并验证加密/解密往返：`QoderCredentialStorage` 以 `.qoder/.auth/machine_id` 的前 16 字符作为 `credential_storage_encrypt` / `credential_storage_decrypt` 的第二参数，明文是 JSON；此路径不是操作系统 keyring。合成会话观察到 `uid`、`name`、`security_oauth_token`、`access_token`、`refresh_token`、`expire_time`、`refresh_token_expire_time`、`login_method`、`login_timestamp`、`encrypt_user_info`、`key`、`startup_validation`。源码设备登录把 token 同时写入两个 token 字段，并使用秒级有效期；guest 的有效期为毫秒，转换必须考虑单位。CLI 从 `uid`、`security_oauth_token`、`organization_id`、`organization_tags`、`data_policy_agreed` 重生成运行时加密字段；guest 中相应值及 `identity` 不能简单当作整份 CLI 会话。
+
+这仍不能证明 guest 到 CLI 会话的**无损导入**：合成会话不含 region，CLI 的 `Ik()` 从环境选择区域，登录后 `syncEndpointAfterLogin()` 还会调度端点选举；guest 不保存原 CLI 登录时间、名称等所有会话字段。正常加载本地 CLI 会话会启动刷新计时器，源码在到期前一小时即可触发刷新。不能猜区域或客户端身份，也不能为补足字段而刷新或撤销生产凭据。此脚本因此只允许合成 FD；插件真实验证应使用上面的共享 harness 和原有 Stravia 凭据。guest 身份涉及 `region`、`uid`、`subject_id`、`access_token`、`machine_id`、`organization_id`、`organization_tags`、`data_policy_agreed`、`identity`；有效期及刷新字段可能存在。上述离线往返只证明合成向量，不证明官方上游接受导入后的会话。
+
+如需额外的单连接 TLS/HTTP 观察，可另行使用宿主的 `stravia-tools capture-client`（`--ca`、`--output`、`--client`、`--client-version`），它只接受 loopback 连接并输出脱敏观察。该工具为 localhost 签发证书、只处理一条连接；上述 CLI 合成服务和该工具不是同一个服务，不能以其输出声称捕获了 CLI 的完整多请求流程，亦不要绕过证书校验来连接它。
 
 ## 配置
 
@@ -67,31 +119,28 @@ API Key:  由 Stravia 访问控制配置决定
 
 ### 会话与请求 ID 契约
 
-核对对象为官方 CLI `1.1.75`（插件固定版本）与当前最新 `1.1.76`；两者 ID 构造点（请求构造器、重试重生成、业务上下文）逐字相同，仅混淆名不同。官方所有 ID 都是 `node:crypto.randomUUID()`，即小写、带横线、36 字符的 UUIDv4；CLI 对会话 ID 的校验（`--session-id`、分叉目标）只要求 `8-4-4-4-12` 十六进制，不限定版本，也不区分大小写。
+核对对象为官方 CLI `1.1.75`（插件固定版本）与 `1.1.76`；两者 ID 构造点（请求构造器、重试重生成、业务上下文）逐字相同，仅混淆名不同。npm 官方注册表当前 `latest` 为 [`1.1.85`](https://registry.npmjs.org/@qoder-ai/qodercli/latest)，本插件未宣称与该版本协议完全一致。官方所核对版本的 ID 使用 `node:crypto.randomUUID()`，即小写、带横线、36 字符的 UUIDv4；CLI 对会话 ID 的校验（`--session-id`、分叉目标）只要求 `8-4-4-4-12` 十六进制，不限定版本，也不区分大小写。
 
 | 字段 | 官方生命周期 | 插件来源与行为 |
 |---|---|---|
-| `session_id` | 会话启动时新建（`sessionId ?? randomUUID()`），恢复会话沿用，不可为空 | 宿主 `operation_metadata.session_affinity` 的确定性转换；缺失、空串或非字符串时按官方新建语义使用本次随机 v4 |
-| `request_id` = `chat_record_id` | 每个模型请求新建一枚，两字段同值；CLI 内部连接重试会重新生成这一对 | 每次 Infer 新建一枚 v4，两字段同值；没有宿主提供的请求级可信源，不由会话键推导 |
-| `request_set_id` | 每次用户提示预分配一枚，工具轮次、压缩、重试共用；子代理另建 | 每次 Infer 新建一枚 v4，不等于 `request_id`；宿主未提供用户运行级 ID，无法跨 Infer 复用 |
-| `business.id` | 主路径（TUI 与 SDK 提交）取同一提示的 `request_set_id`；仅挂起工具调用回放等路径独立新建 | 与本次 `request_set_id` 同值 |
+| `session_id` | 会话启动时新建，恢复会话沿用 | 确定性映射宿主 `operation_metadata.client_conversation_id`；缺失、空串或非字符串时新建随机 v4 |
+| `request_id` = `chat_record_id` | 每个模型请求新建；CLI 内部连接重试重新生成 | 每次 Infer 新建一枚 v4，两字段同值 |
+| `request_set_id` | 每次用户提示预分配，工具轮次、压缩、重试共用；子代理另建 | 确定性映射宿主 `operation_metadata.user_prompt_id`；缺失、空串或非字符串时新建随机 v4 |
+| `business.id` | 主路径取同一提示的 `request_set_id`；特定回放路径独立新建 | 与本次 `request_set_id` 同值 |
 | 签名 payload `requestId`、数据政策 `requestId` | 各自独立的 `randomUUID()` | 保持各自既有 profile，不参与会话转换 |
 
-`session_affinity` 由宿主把本地 GenerationChain 根按 Principal / Target 隔离后派生，不取客户端自报的 session。插件对它计算：
+宿主在可信提示准入过程中生成会话和提示 ID，分别在同一会话及同一提示的多次模型调用间复用。插件分别计算：
 
 ```text
-SHA-256(b"qoder-session-v1\0" || affinity 的完整 UTF-8 字节)
-→ 取前 16 字节
-→ bytes[6] = (bytes[6] & 0x0f) | 0x40
-→ bytes[8] = (bytes[8] & 0x3f) | 0x80
+SHA-256(b"qoder-session-v1\0" || client_conversation_id 的完整 UTF-8 字节)
+SHA-256(b"qoder-prompt-v1\0" || user_prompt_id 的完整 UTF-8 字节)
+→ 各取前 16 字节，设置 UUID v4 版本位与 RFC variant 位
 → 小写、带横线的 36 字符 UUID
 ```
 
-命名域末尾是真实 NUL 字节。不 trim、不改大小写、不解码十六进制；中文、CRLF、NUL 都按完整字节参与，输出只含十六进制。这是算法一旦发布即固定的稳定身份契约，不使用随机数、时间、设备或路径信息，也没有映射表或持久化：同一宿主链路各轮、跨重试、进程重启和插件重载得到同一 `session_id`，不同链路隔离。设置的是 CLI 默认 v4 形态的版本位，不是官方提供的确定性算法。固定向量：`user-run-a → df352d67-b004-4662-8b31-494dc95f5c74`，`user-run-b → 8da1458d-0507-4290-84e5-b170af8a88ca`。
+命名域末尾是真实 NUL 字节。不 trim、不改大小写、不解码十六进制；完整字节参与，两个域彼此独立。此映射是插件的确定性转换，不是官方算法；从旧版 `session_affinity` 切换来源会改变既有上游会话身份。缺少可信宿主字段时分别使用随机值，不从客户端自报的 canonical `parameters.session` 或用于传输复用的 `transport_affinity` 猜造身份。
 
-宿主目前不提供请求级或用户运行级的可信 ID。canonical `parameters.session.{id,request_id,turn_id,root_turn_id}` 来自客户端协议，不具备宿主作用域，不被采用；`transport_affinity` 是传输复用键，也不用作 Qoder 会话。因此请求组仍按官方“现场新建”语义每次 Infer 重新生成。若宿主日后提供经作用域隔离的运行 ID，才能把 `request_set_id` / `business.id` 改为同样的确定性映射，并在同一运行的多次模型调用间复用。
-
-每次推理还创建独立的 `business` 上下文，包含 CLI 产品/协议版本、`agent` 类型、`request_set_id` 同值的业务 ID、开始时间和 `start` 阶段。标题取当前提示的有效 Unicode 前缀，最长 10 个 UTF-16 单元，不生成半个代理对。该对象是上游业务路由所需的请求组成部分，不是可随意省略的日志字段；插件不额外调用业务上报服务。
+每次推理还创建独立的 `business` 上下文，包含 CLI 产品/协议版本、`agent` 类型、`request_set_id` 同值的业务 ID、所选模型的 `model_key`、开始时间和 `start` 阶段。`model_key` 来自 1.1.75 默认交互 PTY 的合成主请求观察；较早的孤立构造器夹具未建立该生命周期。标题取当前提示的有效 Unicode 前缀，最长 10 个 UTF-16 单元，不生成半个代理对。该对象是上游业务路由所需的请求组成部分，不是可随意省略的日志字段；插件不额外调用业务上报服务。此对齐不证明任何真实上游 403 的原因或业务成功。
 
 推理直接投影 canonical IR，不再借用会拆分和重排并行历史的 OpenAI 编码器。工具结果错误标记和显式缓存提示仅在输入 IR 中存在时保留；若入口 codec 已丢弃标记或将带提示的文本块折叠为字符串，插件无法恢复原始客户端 wire 信息。白名单外的请求选项静默忽略，不发送、不告警，也不因为这些选项拒绝推理；非法凭据、区域、配置和无法表达的实际消息内容仍明确报错。
 
@@ -111,14 +160,18 @@ SHA-256(b"qoder-session-v1\0" || affinity 的完整 UTF-8 字节)
 
 | 类别 | 请求头 |
 |---|---|
-| 传输 | `Accept`、`Content-Type`、`Cache-Control`、`Connection`、`User-Agent: undici`、`Accept-Language: *`、`Sec-Fetch-Mode: cors` |
+| 传输 | `Accept`、`Content-Type`、`Cache-Control`、`Connection`、`User-Agent: Bun/1.4.2`；不附加 Node/Undici 的 `Accept-Language` 或 `Sec-Fetch-Mode` |
 | 签名 | `Authorization`、`Cosy-Date`、`Cosy-Key`、`Login-Version` |
 | CLI 身份与业务 | `Cosy-Business-Product`、`Cosy-Business-Type`、`Cosy-ClientType`、`Cosy-Data-Policy`、`Cosy-MachineId`、`Cosy-MachineOS`、`Cosy-MachineHostname`、`Cosy-Scene`、`Cosy-User`、`Cosy-Version` |
 | 条件字段 | 非空组织身份的 `Cosy-Organization-Id` / `Cosy-Organization-Tags`；非空模型键的 `X-Model-Key`，来源已提供时的 `X-Model-Source`（显式空字符串保留） |
 
-模型目录、数据政策、OAuth 和额度请求继续使用各自逐字段构造的请求头与请求体，不接入客户端头透传。Fetch 默认 `User-Agent` 为 `undici`；显式 JSON OpenAPI 请求保留 `qoder/1.1.75`，授权轮询使用 Fetch 默认值。HTTP 宿主自动生成的 `Host` / `Content-Length` 等传输字段不属于插件的参数透传。
+模型目录、数据政策、OAuth 和额度请求继续使用各自逐字段构造的请求头与请求体，不接入客户端头透传。Fetch 默认 `User-Agent` 为 `Bun/1.4.2`；显式 JSON OpenAPI 请求保留 `qoder/1.1.75`，授权轮询使用 Fetch 默认值。业务字段按原生 Bun 顺序排序，随后追加缺省运行时字段；推理的 `Host` 与 `Content-Length` 使用空 slot，由宿主原位填写，不能由客户端参数透传。
 
-全部 HTTP 请求通过 SDK `http_start_with_compression` 声明策略：请求正文不做 HTTP 压缩，普通 HTTPS / 推理请求按顺序接受 `br, gzip, deflate`，认证的模型目录和政策签名 GET 声明空响应列表，由宿主发送 `identity`。协商头、响应编码校验和流式解压由宿主独占；插件不手写 `Accept-Encoding` / `Content-Encoding` / `Content-Length`，也不包含 HTTP 压缩或解压实现。配套宿主按声明顺序去重，不能再按固定枚举顺序重排。Qoder 的私有 `encode_body` / base64 封装及其签名仍由插件处理，它们不是 HTTP 内容压缩。
+官方 CN / Global standalone CLI `1.1.75` 在隔离 user/mount/network namespace 中分别通过默认交互入口、合成登录和本地 TLS 服务采集；运行时现场读取均为 Bun `1.4.2`、Node 兼容版本 `26.3.0`。主请求通过提示标记与日志操作关联识别，不按首个请求或正文长度猜测。两区主请求的 TLS 向量及字段顺序一致，使用 HTTP/1.1；插件内嵌的 `assets/qoder-cli.json` revision 2 保存该基线，选择 `plugin:qoder-cli`，而不是 npm 包在 Node.js `24.21.0` 上的不同形状。脱敏夹具分别保存两区来源摘要和连接关联；合成应答不代表生产成功。此前 npm 路径的工具续接、session / request set 生命周期观察仍只证明其原场景。官方可选 OpenTelemetry 活跃上下文会注入 `traceparent`；宿主没有对应上下文时插件不伪造该字段。
+
+全部 HTTP 请求使用 SDK Net 接口：插件显式设置 `Accept-Encoding`，普通 HTTPS / 推理请求使用 `gzip, deflate, br, zstd`，认证的模型目录和政策签名 GET 使用 `identity`；`Options.response_decoding` 分别声明相应解码集合或空集合。响应编码校验和流式解压由宿主负责；插件不手写 `Content-Encoding` 或长度值，也不包含 HTTP 压缩或解压实现。Qoder 的私有 `encode_body` / base64 封装及其签名仍由插件处理，它们不是 HTTP 内容压缩。
+
+重建的实际 Wasm 组件契约覆盖公共 HTTP 导入、设备授权、模型同步、Responses 文本响应、工具调用及工具续接，并独立校验请求签名和 ID 生命周期。宿主 TLS 检查直接捕获其生成的 ClientHello，与两区原生采样比较；这与完整的官方客户端／插件同 socket 业务对照不是一回事。可选 tracing、组织信息、数据政策及配置的平台身份仍存在差异。2026-11-09 使用授权来源的已有凭据和保存模型 metadata，修正 native 形状后的 CN／Global 真实推理仍返回上游 403，不能标为成功对齐；没有重置身份、刷新凭据或以合成应答替代。
 
 ### 缓存键与会话键对照
 
@@ -126,9 +179,9 @@ SHA-256(b"qoder-session-v1\0" || affinity 的完整 UTF-8 字节)
 
 | 字段 / 机制 | 官方 CLI | 当前插件 |
 |---|---|---|
-| `session_id` | 正常构造链接收会话值 | 由宿主 GenerationChain 亲和键确定性转换（`qoder-session-v1` 域，v4 位布局）；同链稳定，详见上节 |
+| `session_id` | 正常构造链接收会话值 | 宿主 `client_conversation_id` 的确定性转换；缺失时随机新建 |
 | `request_id` / `chat_record_id` | 当前请求共用同一 ID | 已发送同一本轮随机 UUID |
-| `request_set_id` | 请求组独立于请求；正常 Agent 生命周期在工具轮次间复用 | 每次 Infer 创建独立请求组 UUID，不等同请求 ID |
+| `request_set_id` | 请求组独立于请求；正常 Agent 生命周期在工具轮次间复用 | 宿主 `user_prompt_id` 的确定性转换；缺失时随机新建 |
 | `business.id` | 主路径取该提示的请求组 ID，特定调用可使用独立预分配值 | 与本轮 `request_set_id` 同值 |
 | `agent_id` / `task_id` | 业务路由字符串，不是会话 UUID | 保留正常路由 `agent_common` / `common`，不拿宿主链路 ID 替代 |
 | 签名 payload `requestId` | 认证签名协议的请求标识 | 保留独立的本次签名 UUID，不将其误认为会话键 |
@@ -136,7 +189,7 @@ SHA-256(b"qoder-session-v1\0" || affinity 的完整 UTF-8 字节)
 | `source_session_id` | 按实际分支或恢复状态条件传递来源会话 | 没有对应 CLI 来源会话状态时不发送；不拿父节点或客户端自报值冒充 |
 | `custom_context` / `patches` | 正常构造器支持可选上下文及补丁 | 未建立相应 CLI 上下文/补丁状态，不透传任意对象 |
 
-宿主提供的 `session_affinity` 用于会话亲和，不等于 CLI 请求组。插件未建立与 CLI Agent 生命周期对应的跨轮业务状态，不从 Observation、宿主父节点或客户端自报值拼造身份。请求组和业务 ID 的范围是一轮 Infer，不声称复刻完整 CLI Agent 生命周期。
+宿主提示准入字段提供会话与用户提示的可信生命周期；插件分别映射它们，不从 Observation、宿主父节点或客户端自报值拼造身份。宿主未提供对应字段时仅在本次 Infer 内生成随机 ID；插件不声称复刻 CLI 完整 Agent 生命周期。
 
 自动缓存断点按官方正常预处理及 `HYi` 的 `skipCacheWrite=false` 路径处理：
 
@@ -152,15 +205,15 @@ CLI 的 `skipCacheWrite=true` 侧路依赖其工作流状态；当前 canonical 
 
 ## 构建与验证
 
-当前源码通过相对路径使用插件目录旁的完整 `StraviaPlatform/` checkout，五个 Stravia 依赖统一指向 `../StraviaPlatform/backend/crates/...`；不能只下载本插件源码。发布工作流按相同布局检出到 `source/StraviaPlatform`，`STRAVIA_PLATFORM_REF` 仓库变量可指定主仓库 revision。覆盖该变量前须核对 SDK、protocol-codec 与 vendor-runtime 契约，并通过构建及真实组件验证。
+五个 Stravia 依赖（`stravia-vendor-sdk`、`stravia-vendor-common`、`stravia-runtime-contract`、`stravia-protocol-codec` 及 dev 依赖 `stravia-vendor-runtime`）通过 git tag 固定到 [`StraviaPlatform` v0.7.0](https://github.com/Stravia-AI/StraviaPlatform/releases/tag/v0.7.0)，由 Cargo 直接拉取，无需本地 `StraviaPlatform/` checkout，`Cargo.lock` 锁定到该 tag 的具体提交。升级基线时同步修改 `Cargo.toml` 中五处 `tag`，核对 SDK、protocol-codec 与 vendor-runtime 契约，并通过构建及真实组件验证。
 
 品牌图标由 `assets/qoder.svg` 编译进 Wasm，无需运行时下载。它使用 [Qoder 官方 SVG](https://qoder.com/favIcon.svg) 的原始路径，去掉底色并转为透明单色，以适配 Stravia 的浅色和深色主题。显示图标需要同时使用更新后的宿主并重新导入插件；归属及授权边界见 [NOTICE](NOTICE)。
 
 依赖 Rust `1.99.1`、`wasm32-wasip2` target，以及可选的 [Task](https://taskfile.dev)。工具链由 `rust-toolchain.toml` 固定。
 
-当前配套 dev 基线为 [`83613f4752178e952226fc21a386c3c79a4e3131`](https://github.com/Stravia-AI/StraviaPlatform/commit/83613f4752178e952226fc21a386c3c79a4e3131)，五个 Stravia crate 统一为 `0.6.2`，Vendor WIT world 保持 `stravia:vendor@0.6.0`；发布工作流默认固定此基线。历史标签仍使用各自提交中固定的依赖，不跟随分支自动改变。本地路径依赖使用相邻 checkout 的实际工作区；新版组件应配套当前基线宿主，旧 WIT `0.5.1` 宿主不能加载。WIT 版本不变也不表示描述符兼容：新版宿主已移除可选的 `connection_check` capability，升级后须重新构建并导入组件。本次不改变插件原有精确域名声明。
+当前源码面向宿主 Vendor `1.0.0`、Net `1.1.0` 和 State `1.1.0` 接口，并依赖支持插件专属出站形状声明的 SDK 和宿主，配套基线为 [`StraviaPlatform` v0.7.0](https://github.com/Stravia-AI/StraviaPlatform/releases/tag/v0.7.0)；此前源码基线 `037b07ad1d80fa35c55bd68a6f1cfa3e664b55a2` 本身不足以满足此要求。须使用匹配宿主重新构建并导入组件；历史标签仍使用各自固定的依赖。本次不改变插件原有精确域名声明。
 
-HTTP 响应编码声明保序及首次去重修复现已进入上游 [`ff6db7f4`](https://github.com/Stravia-AI/StraviaPlatform/commit/ff6db7f4)，包含在当前配套基线中，不再依赖未发布的工作区补丁。实际传输仍须使用包含该修复的宿主；重建插件不能替换旧宿主的 HTTP 实现。
+HTTP 响应编码声明保序及首次去重修复已进入上游 [`ff6db7f4`](https://github.com/Stravia-AI/StraviaPlatform/commit/ff6db7f4)，包含在 v0.7.0 中，不再依赖未发布的工作区补丁。实际传输仍须使用包含该修复的宿主；重建插件不能替换旧宿主的 HTTP 实现。
 
 ```bash
 # 构建组件
@@ -180,13 +233,21 @@ cargo test --locked --test component_contract -- --ignored --nocapture
 task test
 ```
 
+离线形状验证须先构建上述 release Wasm 和由 `StraviaPlatform` v0.7.0 源码构建的 `stravia-tools`（`stravia-devtools` 包），显式指定工具可执行文件：
+
+```sh
+STRAVIA_TOOLS=/absolute/path/to/stravia-tools task verify-egress-shape
+```
+
+该任务读取本仓库 `tests/fixtures/qoder-cli.json` 和 `tests/fixtures/qoder-cli-global.json`，分别以 `gateway.qoder.com.cn` 和 `api2.qoder.sh` 合成本地 ClientHello 并对照捕获；不连接上游、不读取凭据。更新形状时维护 `assets/qoder-cli.json` 并用两份有来源的原始捕获重新验证；采集脚本必须显式指定 `--output`，不得覆盖捕获来源或将真实凭据交给脚本。
+
 当前 Stravia runtime 接受受限接口集合中的稳定 WASI `0.2.x` 版本，包括 SDK 与 Rust 标准库的混合 patch 版本；接口函数和资源类型仍须匹配。组件契约测试加载实际产物验证这些导入，不修改宿主白名单或二进制导入名称绕过检查。
 
-离线验证覆盖以下层次：
+以下为旧 dev 基线上的历史离线验证，不代表当前接口迁移后的结果；当前迁移尚须重新构建及验证：
 
-- 本次 dev 适配通过 34 项单元测试；保留官方 `1.1.65` 的全合成密码学向量，并覆盖思考激活优先级、目录档位筛选、缓存及非空思考签名边界、会话 ID 固定向量、请求组 ID 生命周期和可读账号选择。
-- 本次通过 10 项真实 Wasm 组件契约，覆盖两区域登录、刷新、模型、额度、原生签名、反序并行工具结果及任意字节切块 SSE；正文夹具保持官方 `1.1.75` 正常链输出。账号与套餐展示、旧凭据无标签、刷新不沿用过期标签、明确授权拒绝与暂时错误分类、空白 refresh token 回退和过期时间保留均继续通过；身份边界另覆盖凭据轮换后会话不变。两项连接检查契约通过新版必需接口验证两区域账号 ID 优先级与回退、只读副作用边界、畸形响应、账号变化、HTTP 错误分类、错误脱敏，以及凭据、区域、地址和配置错误的出站前拒绝。消息边界契约新增不同响应及已标记/未标记历史场景：旧投影先复现错误合并，修复后通过，并保留同响应内容合并。
-- 本次使用固定 Rust `1.99.1` 构建并运行独立 `protocol_smoke`，通过 stdin 提供全合成凭据和 HTTP/SSE 响应，完成 Responses 字符串入口推理，返回 `DEV_SYNC_83613F47_OK` 和 14 token 合成 usage；出站验证稳定会话、请求组 ID、`br, gzip, deflate` 压缩声明，以及对象工具 Schema 内的 `true` / `false` 和 `additionalProperties: false` 不被改写。连接检查由上述真实组件契约验证，本次独立入口未执行登录或连接检查。Responses 入口不接受根级布尔 `parameters`，该限制不等于 Qoder 上游拒绝布尔 Schema；本插件不套用 Antigravity 的专有转换。示例构建因直接包含契约测试文件产生未使用导入和测试辅助项警告，不影响运行。
+- 当时 dev 适配通过 34 项单元测试；保留官方 `1.1.65` 的全合成密码学向量，并覆盖思考激活优先级、目录档位筛选、缓存及非空思考签名边界、会话 ID 固定向量、请求组 ID 生命周期和可读账号选择。
+- 当时通过 10 项真实 Wasm 组件契约，覆盖两区域登录、刷新、模型、额度、原生签名、反序并行工具结果及任意字节切块 SSE；正文夹具保持官方 `1.1.75` 正常链输出。账号与套餐展示、旧凭据无标签、刷新不沿用过期标签、明确授权拒绝与暂时错误分类、空白 refresh token 回退和过期时间保留均继续通过；身份边界另覆盖凭据轮换后会话不变。两项连接检查契约通过新版必需接口验证两区域账号 ID 优先级与回退、只读副作用边界、畸形响应、账号变化、HTTP 错误分类、错误脱敏，以及凭据、区域、地址和配置错误的出站前拒绝。消息边界契约新增不同响应及已标记/未标记历史场景：旧投影先复现错误合并，修复后通过，并保留同响应内容合并。
+- 当时使用固定 Rust `1.99.1` 构建并运行独立 `protocol_smoke`，通过 stdin 提供全合成凭据和 HTTP/SSE 响应，完成 Responses 字符串入口推理，返回 `DEV_SYNC_83613F47_OK` 和 14 token 合成 usage；出站验证稳定会话、请求组 ID、`br, gzip, deflate` 压缩声明，以及对象工具 Schema 内的 `true` / `false` 和 `additionalProperties: false` 不被改写。连接检查由上述真实组件契约验证，本次独立入口未执行登录或连接检查。Responses 入口不接受根级布尔 `parameters`，该限制不等于 Qoder 上游拒绝布尔 Schema；本插件不套用 Antigravity 的专有转换。示例构建因直接包含契约测试文件产生未使用导入和测试辅助项警告，不影响运行。
 - 协议对齐阶段曾通过 20 组 SDK 等价输入与官方黄金向量的 JSON 语义差分；随机 ID、时间和传入会话归一化，业务标题由官方 `E_a` 独立计算。实际出站同时检查 Fetch 默认头、三种响应编码策略及稳定合成身份。该历史差分本次未重新执行。
 - 配套宿主在此前协议对齐阶段通过 6 项 HTTP 编码/解码测试及 2 项真实 TCP 编码协商测试，覆盖声明保序、首次去重、空列表 `identity`、响应白名单、截断及流式边界；本次未重跑这些宿主测试。Wasm mock 回复不冒充宿主 HTTP 解压验证。
 
@@ -214,7 +275,9 @@ npx --yes --ignore-scripts rea-agents@6.7.0 --help
 
 当前客户端身份固定为已核对的官方 CLI [`1.1.75`](https://registry.npmjs.org/@qoder-ai/qodercli/-/qodercli-1.1.75.tgz)。显式 OpenAPI User-Agent、`Cosy-Version`、签名 payload 和推理业务版本同步使用该值；普通 Fetch 请求使用官方传输链的 `undici` 默认 User-Agent。
 
-本实现以该发布包的定向源码、隔离官方函数执行和实际 Wasm 差分为依据。`bundle/qodercli.js` 文本 SHA-256 为 `1b5b17bb25bcd2e059a97e8bc1d4280e4c16fb4194b004463cd677c434536948`；历史认证向量保留其原始 `1.1.65` 版本，不冒充新版向量。生产组件不分发、嵌入或执行官方认证 WASM，也不运行 CLI bootstrap。
+npm `1.1.85` 包的离线静态检查显示其 `$br` 请求构造器仍将 `request_id` 与 `chat_record_id` 设为同值，并读取 identity 中的 `requestSetId` 和 `sessionId`；这只验证该构造点，不证明新版完整生命周期或其他协议字段一致。REA JavaScript 包分析 Evidence：`ev_1e34751ee52e7bb400adc0b1821ad9a7d3800e4bc62804e9bbd7c3f2a8ba11c6`；未运行 CLI，也未访问生产服务。
+
+本实现以 `1.1.75` 发布包的定向源码、隔离官方函数执行和实际 Wasm 差分为依据。`bundle/qodercli.js` 文本 SHA-256 为 `1b5b17bb25bcd2e059a97e8bc1d4280e4c16fb4194b004463cd677c434536948`；历史认证向量保留其原始 `1.1.65` 版本，不冒充新版向量。生产组件不分发、嵌入或执行官方认证 WASM，也不运行 CLI bootstrap。
 
 最终传输核对覆盖正常 `sendRemoteChatAsk → X8i → KYe.send → za → HFi → H_A → FT → YSn → h9i → FD.fetch`，不是仅凭 bundle 中存在某个 HTTP 库推断默认值。官方 FT 用合成 HTTPS dispatcher 执行，物理网络和文件系统访问被拒绝；新版图片缓存的早期孤立函数结论已撤回，以前述完整链规则为准。可选 `custom_context` / `source_session_id` / `patches` 仍须有真实 Agent 状态才发送，不构造替代值。
 
@@ -245,6 +308,10 @@ vendor/             消息编译器与第三方许可证
 ```
 
 ## 变更记录
+
+### 0.3.0
+
+- 五个 Stravia 依赖由 `../StraviaPlatform/backend/crates/...` 本地路径改为 git tag 依赖，固定到 `StraviaPlatform` v0.7.0（`Cargo.lock` 锁定 `7b9274f6`）；发布工作流不再检出主仓库，`STRAVIA_PLATFORM_REF` 变量随之移除。`scripts/vendor_alignment.py` 不再使用 `--host-repo` / `STRAVIA_PLATFORM_DIR`，改为按 `Cargo.toml` 的同一 tag 稀疏浅克隆共享 harness。已在该基线上通过 34 项单元测试和 10 项真实 Wasm 契约；未访问真实账号。
 
 ### 0.2.0
 

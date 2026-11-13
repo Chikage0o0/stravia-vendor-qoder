@@ -23,6 +23,17 @@ tasks:
   verify:
     desc: 构建并执行全部验证
     deps: [test]
+    cmds:
+      - task: verify-egress-shape
+
+  verify-egress-shape:
+    desc: 离线对照两区域 CLI ClientHello（设置 STRAVIA_TOOLS 为配套宿主工具路径）
+    deps: [build]
+    requires:
+      vars: [STRAVIA_TOOLS]
+    cmds:
+      - '"{{.STRAVIA_TOOLS}}" verify-egress-shape --component "{{.WASM}}" --shape plugin:qoder-cli --fixture tests/fixtures/qoder-cli.json --server-name gateway.qoder.com.cn'
+      - '"{{.STRAVIA_TOOLS}}" verify-egress-shape --component "{{.WASM}}" --shape plugin:qoder-cli --fixture tests/fixtures/qoder-cli-global.json --server-name api2.qoder.sh'
 
   dist:
     desc: 构建并打包 dist/（组件、许可证与 SHA256SUMS）

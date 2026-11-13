@@ -3,8 +3,10 @@ use rust_decimal::Decimal;
 use serde_json::Value;
 use stravia_vendor_common::{account, common, plan};
 use stravia_vendor_sdk::{
-    AllowanceAmount, AllowanceItem, AllowanceResponse, ErrorKind, GuestHost, HttpRequest,
-    PluginError, ProviderSnapshot, read_http_body,
+    AllowanceAmount, AllowanceItem, AllowanceResponse, ErrorKind, GuestHost, PluginError,
+    ProviderSnapshot,
+    net::{Fields, Request},
+    read_http_body,
 };
 fn malformed(message: &str) -> PluginError {
     common::plugin_error(ErrorKind::upstream_unknown(), message)
@@ -21,14 +23,13 @@ pub(crate) fn execute(
     region: Region,
 ) -> Result<AllowanceResponse, PluginError> {
     let token = auth::oauth_token(provider, region)?;
-    let mut headers = vec![
-        ("Accept".into(), "application/json".into()),
-        ("Authorization".into(), format!("Bearer {token}")),
-    ];
+    let mut headers = Fields::new();
+    headers.append("Accept", "application/json");
+    headers.append("Authorization", format!("Bearer {token}"));
     protocol::add_client_headers(&mut headers, &provider.options, "", false)?;
     let response = protocol::start_http(
         host,
-        HttpRequest {
+        Request {
             method: "GET".into(),
             url: format!("{}/api/v2/quota/usage", region.openapi_origin()),
             headers,

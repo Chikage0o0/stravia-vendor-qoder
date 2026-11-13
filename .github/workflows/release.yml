@@ -31,13 +31,6 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           path: source/stravia-vendor-qoder
 
-      - name: Checkout Stravia host SDK
-        uses: actions/checkout@v4
-        with:
-          repository: Stravia-AI/StraviaPlatform
-          ref: ${{ vars.STRAVIA_PLATFORM_REF || '83613f4752178e952226fc21a386c3c79a4e3131' }}
-          path: source/StraviaPlatform
-
       # rust-toolchain.toml 是工具链版本的唯一来源
       - name: Read rust-toolchain.toml
         id: toolchain

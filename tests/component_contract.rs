@@ -17,9 +17,10 @@ use stravia_runtime_contract::protocol::ir::AiErrorKind;
 use stravia_runtime_contract::{CancellationToken, Deadline};
 use stravia_vendor_common::common;
 use stravia_vendor_runtime::{
-    HostFailure, HostHttpResponse, HostServices, HostWebSocket, HttpRequest, LoadedPlugin,
-    LogLevel, OperationScope, RuntimeError, RuntimeEvent, VendorRuntime, WsRequest,
+    HostFailure, HostHttpResponse, HostServices, HostWebSocket, LoadedPlugin, LogLevel,
+    OperationScope, RuntimeError, RuntimeEvent, VendorRuntime,
 };
+use stravia_vendor_sdk::net::{ConnectRequest, Field, Options, Request as HttpRequest};
 use stravia_vendor_sdk::{
     AllowanceRequest, AuthRequest, AuthResponse, AuthStep, ConnectionCheckRequest,
     ConnectionCheckVerification, DiscoverRequest, ErrorKind, OperationInput, OperationOutput,
@@ -81,8 +82,15 @@ impl HostHttpResponse for Reply {
     async fn status(&self) -> Result<u16, HostFailure> {
         Ok(self.status)
     }
-    async fn headers(&self) -> Result<Vec<(String, String)>, HostFailure> {
-        Ok(self.headers.clone())
+    async fn headers(&self) -> Result<Vec<Field>, HostFailure> {
+        Ok(self
+            .headers
+            .iter()
+            .map(|(name, value)| Field {
+                name: name.clone(),
+                bytes: value.as_bytes().to_vec(),
+            })
+            .collect())
     }
     async fn read_body(&self) -> Result<Option<Vec<u8>>, HostFailure> {
         Ok(self.chunks.lock().pop_front())
@@ -91,6 +99,7 @@ impl HostHttpResponse for Reply {
 
 struct LocalUpstream {
     origins: Vec<String>,
+    shapes: std::collections::BTreeSet<String>,
     replies: Mutex<VecDeque<Reply>>,
     requests: Mutex<Vec<HttpRequest>>,
     state: Mutex<Option<Vec<u8>>>,
@@ -98,9 +107,15 @@ struct LocalUpstream {
 }
 
 impl LocalUpstream {
-    fn new(origins: &[&str]) -> Arc<Self> {
+    fn new(plugin: &LoadedPlugin, origins: &[&str]) -> Arc<Self> {
         Arc::new(Self {
             origins: origins.iter().map(|origin| (*origin).into()).collect(),
+            shapes: plugin
+                .descriptor()
+                .egress_shapes
+                .iter()
+                .map(|shape| format!("plugin:{}", shape.name))
+                .collect(),
             replies: Mutex::new(VecDeque::new()),
             requests: Mutex::new(Vec::new()),
             state: Mutex::new(None),
@@ -122,7 +137,48 @@ impl LocalUpstream {
 
 #[async_trait]
 impl HostServices for LocalUpstream {
-    fn http_start(&self, request: HttpRequest) -> Result<Arc<dyn HostHttpResponse>, HostFailure> {
+    fn validate_net_option(
+        &self,
+        key: &str,
+        value: &str,
+    ) -> Result<(), stravia_vendor_sdk::net::OptionError> {
+        use stravia_vendor_sdk::net;
+        net::validate_host_option(key, value)?;
+        if key == net::keys::SHAPE && value != "default" && !self.shapes.contains(value) {
+            return Err(net::OptionError {
+                key: key.into(),
+                value: value.into(),
+            });
+        }
+        Ok(())
+    }
+
+    fn http_start(
+        &self,
+        request: HttpRequest,
+        options: Options,
+    ) -> Result<Arc<dyn HostHttpResponse>, HostFailure> {
+        assert_eq!(
+            options
+                .iter()
+                .find(|(key, _)| *key == stravia_vendor_sdk::net::keys::SHAPE)
+                .map(|(_, value)| value),
+            Some("plugin:qoder-cli"),
+            "outbound HTTP must select the plugin-owned shape"
+        );
+        let signed_get = request.method == "GET"
+            && request
+                .headers
+                .get("Authorization")
+                .is_some_and(|value| value.starts_with(b"Bearer COSY."));
+        assert_eq!(
+            request.headers.get("Accept-Encoding"),
+            Some(if signed_get {
+                b"identity".as_slice()
+            } else {
+                b"gzip, deflate, br, zstd".as_slice()
+            })
+        );
         let url = url::Url::parse(&request.url).unwrap();
         assert!(
             self.origins.contains(&url.origin().ascii_serialization()),
@@ -136,7 +192,11 @@ impl HostServices for LocalUpstream {
                 .expect("unexpected HTTP request or retry"),
         ))
     }
-    async fn ws_connect(&self, _: WsRequest) -> Result<Arc<dyn HostWebSocket>, HostFailure> {
+    async fn ws_connect(
+        &self,
+        _: ConnectRequest,
+        _: Options,
+    ) -> Result<Arc<dyn HostWebSocket>, HostFailure> {
         Err(HostFailure::new(
             ErrorKind::Unsupported,
             "WebSocket is not allowed in this contract",
@@ -200,7 +260,10 @@ fn snapshot(region: RegionFixture) -> ProviderSnapshot {
         model: Some("synthetic-model".into()),
         model_metadata: None,
         client_headers: Vec::new(),
-        operation_metadata: BTreeMap::from([("session_affinity".into(), json!(SESSION_AFFINITY))]),
+        operation_metadata: BTreeMap::from([(
+            "client_conversation_id".into(),
+            json!(SESSION_AFFINITY),
+        )]),
     }
 }
 
@@ -345,12 +408,13 @@ fn reference_decode(encoded: &[u8]) -> Value {
 }
 
 fn header<'a>(request: &'a HttpRequest, name: &str) -> &'a str {
-    &request
-        .headers
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case(name))
-        .unwrap_or_else(|| panic!("missing {name}"))
-        .1
+    std::str::from_utf8(
+        request
+            .headers
+            .get(name)
+            .unwrap_or_else(|| panic!("missing {name}")),
+    )
+    .expect("header is UTF-8")
 }
 
 fn verify_signed(request: &HttpRequest, origin: &str, path: &str, uid: &str) -> Option<Value> {
@@ -480,7 +544,7 @@ async fn regional_device_catalog_and_quota_contract() {
         ["cn", "global"]
     );
     for region in REGIONS {
-        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
         let start = run(
             &runtime,
@@ -626,7 +690,10 @@ async fn regional_device_catalog_and_quota_contract() {
             .unwrap(),
         );
         assert_eq!(provider.credentials["access_token"], "synthetic-oauth-two");
-        assert_eq!(provider.credentials["account_label"], "synthetic@example.test");
+        assert_eq!(
+            provider.credentials["account_label"],
+            "synthetic@example.test"
+        );
         assert_eq!(
             provider.credentials["refresh_token"],
             "synthetic-refresh-two"
@@ -720,7 +787,10 @@ async fn regional_device_catalog_and_quota_contract() {
             panic!("expected quota")
         };
         assert_eq!(quota.plan_label.as_deref(), Some("Team Plus"));
-        assert_eq!(quota.account_label.as_deref(), Some("synthetic@example.test"));
+        assert_eq!(
+            quota.account_label.as_deref(),
+            Some("synthetic@example.test")
+        );
         let allowance = quota
             .allowances
             .iter()
@@ -934,7 +1004,7 @@ async fn official_cli_parallel_history_contract() {
     ))
     .unwrap();
     for region in REGIONS {
-        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
         provider.model = Some("qfmodel".into());
         if region.channel == "cn" {
@@ -1054,6 +1124,66 @@ async fn official_cli_parallel_history_contract() {
         );
         let requests = local.requests.lock();
         let request = requests.last().unwrap();
+        // Official CN/global standalone 1.1.75, Bun 1.4.2 main request.
+        // Optional tracing, model and identity fields depend on operation context.
+        let captured_names = [
+            "Accept",
+            "Authorization",
+            "Cache-Control",
+            "Connection",
+            "Content-Type",
+            "Cosy-Business-Product",
+            "Cosy-Business-Type",
+            "Cosy-ClientType",
+            "Cosy-Data-Policy",
+            "Cosy-Date",
+            "Cosy-Key",
+            "Cosy-MachineId",
+            "Cosy-MachineOS",
+            "Cosy-Scene",
+            "Cosy-User",
+            "Cosy-Version",
+            "Login-Version",
+            "User-Agent",
+            "Host",
+            "Accept-Encoding",
+            "Content-Length",
+        ];
+        let actual_names: Vec<_> = request
+            .headers
+            .iter()
+            .map(|field| field.name.as_str())
+            .filter(|name| {
+                !matches!(
+                    *name,
+                    "traceparent"
+                        | "X-Model-Key"
+                        | "X-Model-Source"
+                        | "Cosy-MachineHostname"
+                        | "Cosy-Organization-Id"
+                        | "Cosy-Organization-Tags"
+                )
+            })
+            .collect();
+        assert_eq!(
+            actual_names, captured_names,
+            "inference field spelling and order"
+        );
+        assert_eq!(
+            request.headers.get("User-Agent"),
+            Some(b"Bun/1.4.2".as_slice())
+        );
+        for name in ["host", "content-length"] {
+            assert_eq!(
+                request.headers.get(name),
+                Some(b"".as_slice()),
+                "{name} must be an empty host-generated slot"
+            );
+        }
+        assert_eq!(
+            request.headers.get("connection"),
+            Some(b"keep-alive".as_slice())
+        );
         let actual = verify_signed(
             request,
             region.infer,
@@ -1073,6 +1203,10 @@ async fn official_cli_parallel_history_contract() {
         assert_eq!(business_id.get_version_num(), 4);
         assert_ne!(business["id"], actual["request_id"]);
         assert_eq!(business["id"], actual["request_set_id"]);
+        // The interactive 1.1.75 PTY request carries the selected model key;
+        // the older isolated-function fixture did not construct that lifecycle.
+        assert_eq!(business["model_key"], "qfmodel");
+        oracle["business"]["model_key"] = json!("qfmodel");
         // The fixture records historical CLI wire behavior, not today's client identity.
         oracle["business"]["version"] = business["version"].clone();
         oracle["business"]["id"] = business["id"].clone();
@@ -1113,7 +1247,7 @@ async fn official_cli_parallel_history_contract() {
             !policy
                 .headers
                 .iter()
-                .any(|(name, _)| name.eq_ignore_ascii_case("Cosy-MachineHostname")),
+                .any(|field| field.name.eq_ignore_ascii_case("Cosy-MachineHostname")),
             "machine hostname belongs only to the inference transport"
         );
         println!(
@@ -1141,7 +1275,7 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
         "required":["seed","strict"]
     });
     for region in REGIONS {
-        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
         run(
             &runtime,
@@ -1306,8 +1440,9 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
         assert_eq!(header(outbound, "Cosy-Organization-Tags"), "synthetic-tag");
         assert_eq!(header(outbound, "Cosy-Data-Policy"), "agree");
         assert!(
-            outbound.headers.iter().all(|(name, value)| {
-                !name.eq_ignore_ascii_case("X-Custom") && value != "malicious-client-override"
+            outbound.headers.iter().all(|field| {
+                !field.name.eq_ignore_ascii_case("X-Custom")
+                    && field.bytes.as_slice() != b"malicious-client-override"
             }),
             "client headers must neither pass through nor override native signing and identity"
         );
@@ -1316,7 +1451,7 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
                 outbound
                     .headers
                     .iter()
-                    .filter(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+                    .filter(|field| field.name.eq_ignore_ascii_case(name))
                     .count()
                     <= 1,
                 "client header {name} must not append a competing native header"
@@ -1328,12 +1463,12 @@ async fn official_cli_ignores_non_cli_request_fields_contract() {
 #[tokio::test]
 #[ignore = "build the release wasm32-wasip2 component first"]
 async fn official_cli_cache_boundaries_and_chain_identity_contract() {
-    use stravia_runtime_contract::protocol::ir::{ContentBlock, MessageContent, Role};
     use stravia_runtime_contract::protocol::ir::response::mark_response_history;
+    use stravia_runtime_contract::protocol::ir::{ContentBlock, MessageContent, Role};
     let runtime = VendorRuntime::new().unwrap();
     let plugin = runtime.load(&artifact()).await.unwrap();
     let region = REGIONS[0];
-    let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+    let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
     let mut provider = snapshot(region);
     provider.model_metadata = Some(stravia_vendor_sdk::ModelMetadata {
         id: Some("synthetic-model".into()),
@@ -1485,7 +1620,7 @@ async fn official_cli_cache_boundaries_and_chain_identity_contract() {
         );
         let expected_session = if index == last_case {
             provider.operation_metadata.insert(
-                "session_affinity".into(),
+                "client_conversation_id".into(),
                 json!("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"),
             );
             "9fb8b35c-8899-4520-90ae-97a7ffd9ccf4"
@@ -1557,7 +1692,7 @@ async fn responses_items_preserve_native_assistant_turns() {
     ))
     .unwrap();
     for region in REGIONS {
-        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
         run(
             &runtime,
@@ -1650,7 +1785,7 @@ async fn native_enveloped_stream_completion_and_failure_contract() {
     let runtime = VendorRuntime::new().unwrap();
     let plugin = runtime.load(&artifact()).await.unwrap();
     for region in REGIONS {
-        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
         run(
             &runtime,
@@ -1930,7 +2065,7 @@ async fn oauth_refresh_recovery_contract() {
     let region = REGIONS[0];
     let runtime = VendorRuntime::new().unwrap();
     let plugin = runtime.load(&artifact()).await.unwrap();
-    let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+    let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
     let mut provider = snapshot(region);
     run(
         &runtime,
@@ -1960,10 +2095,26 @@ async fn oauth_refresh_recovery_contract() {
         .unwrap(),
     );
     for (status, payload, kind) in [
-        (400, json!({"error":"invalid_grant"}), AiErrorKind::AuthenticationError),
-        (403, json!({"error":"insufficient_permissions"}), AiErrorKind::AuthorizationError),
-        (429, json!({"error":"invalid_grant"}), AiErrorKind::RateLimitError),
-        (503, json!({"error":"invalid_grant"}), AiErrorKind::ServiceUnavailable),
+        (
+            400,
+            json!({"error":"invalid_grant"}),
+            AiErrorKind::AuthenticationError,
+        ),
+        (
+            403,
+            json!({"error":"insufficient_permissions"}),
+            AiErrorKind::AuthorizationError,
+        ),
+        (
+            429,
+            json!({"error":"invalid_grant"}),
+            AiErrorKind::RateLimitError,
+        ),
+        (
+            503,
+            json!({"error":"invalid_grant"}),
+            AiErrorKind::ServiceUnavailable,
+        ),
         (200, json!({}), AiErrorKind::Unknown),
     ] {
         local.reply(Reply::status(status, payload));
@@ -1978,21 +2129,40 @@ async fn oauth_refresh_recovery_contract() {
         .unwrap_err();
         if kind == AiErrorKind::AuthenticationError {
             assert!(
-                matches!(error, RuntimeError::Plugin { kind: ErrorKind::Auth, .. }),
+                matches!(
+                    error,
+                    RuntimeError::Plugin {
+                        kind: ErrorKind::Auth,
+                        ..
+                    }
+                ),
                 "refresh HTTP {status}: {error:?}"
             );
         } else if kind == AiErrorKind::Unknown {
             assert!(
-                matches!(error, RuntimeError::Plugin { kind: ErrorKind::Upstream(_), .. }),
+                matches!(
+                    error,
+                    RuntimeError::Plugin {
+                        kind: ErrorKind::Upstream(_),
+                        ..
+                    }
+                ),
                 "malformed response is not revoked authorization: {error:?}"
             );
         } else {
-            assert_eq!(error.model_error_kind(), Some(kind), "refresh HTTP {status}");
+            assert_eq!(
+                error.model_error_kind(),
+                Some(kind),
+                "refresh HTTP {status}"
+            );
         }
     }
     let access_expiry = provider.credentials["expire_time"].clone();
     let refresh_expiry = provider.credentials["refresh_token_expire_time"].clone();
-    for (index, refresh) in [Value::Null, json!(""), json!(" \t ")].into_iter().enumerate() {
+    for (index, refresh) in [Value::Null, json!(""), json!(" \t ")]
+        .into_iter()
+        .enumerate()
+    {
         local.reply(Reply::json(json!({
             "device_token":"synthetic-next-access", "refresh_token":refresh
         })));
@@ -2016,10 +2186,16 @@ async fn oauth_refresh_recovery_contract() {
             .await
             .unwrap(),
         );
-        assert_eq!(provider.credentials["access_token"], "synthetic-next-access");
+        assert_eq!(
+            provider.credentials["access_token"],
+            "synthetic-next-access"
+        );
         assert_eq!(provider.credentials["refresh_token"], "synthetic-refresh");
         assert_eq!(provider.credentials["expire_time"], access_expiry);
-        assert_eq!(provider.credentials["refresh_token_expire_time"], refresh_expiry);
+        assert_eq!(
+            provider.credentials["refresh_token_expire_time"],
+            refresh_expiry
+        );
         if index == 2 {
             assert!(!provider.credentials.contains_key("account_label"));
         }
@@ -2037,7 +2213,7 @@ async fn connection_check_region_credentials_contract() {
     let runtime = VendorRuntime::new().unwrap();
     let plugin = runtime.load(&artifact()).await.unwrap();
     for region in REGIONS {
-        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
         run(
             &runtime,
@@ -2121,10 +2297,10 @@ async fn connection_check_region_credentials_contract() {
                 "{label}"
             );
             assert!(
-                probe
-                    .headers
-                    .iter()
-                    .all(|(_, value)| !value.contains(REFRESH)),
+                probe.headers.iter().all(|field| !field
+                    .bytes
+                    .windows(REFRESH.len())
+                    .any(|window| window == REFRESH.as_bytes())),
                 "{label}: the refresh credential must not leave the plugin"
             );
             drop(requests);
@@ -2162,7 +2338,7 @@ async fn connection_check_rejection_contract() {
     let other = REGIONS[1];
     let runtime = VendorRuntime::new().unwrap();
     let plugin = runtime.load(&artifact()).await.unwrap();
-    let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+    let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
     let mut provider = snapshot(region);
     run(
         &runtime,
@@ -2307,10 +2483,10 @@ async fn connection_check_rejection_contract() {
             "{label}"
         );
         assert!(
-            requests[0]
-                .headers
-                .iter()
-                .all(|(_, value)| !value.contains(REFRESH)),
+            requests[0].headers.iter().all(|field| !field
+                .bytes
+                .windows(REFRESH.len())
+                .any(|window| window == REFRESH.as_bytes())),
             "{label}: the refresh credential must not leave the plugin"
         );
         drop(requests);
@@ -2322,7 +2498,9 @@ async fn connection_check_rejection_contract() {
     let mut missing = provider.clone();
     missing.credentials.clear();
     let mut crossed = provider.clone();
-    crossed.credentials.insert("region".into(), json!(other.channel));
+    crossed
+        .credentials
+        .insert("region".into(), json!(other.channel));
     let mut inconsistent = provider.clone();
     inconsistent
         .credentials
@@ -2334,7 +2512,9 @@ async fn connection_check_rejection_contract() {
         .options
         .insert("machine_os".into(), json!("synthetic_os"));
     let mut unknown = provider.clone();
-    unknown.options.insert("model_ids".into(), json!(["ignored"]));
+    unknown
+        .options
+        .insert("model_ids".into(), json!(["ignored"]));
     let preflight = [
         ("missing credentials", missing, CheckExpect::Auth),
         (
@@ -2397,7 +2577,7 @@ async fn native_identity_lifecycle_boundary_contract() {
     for reload in 0..2 {
         let runtime = VendorRuntime::new().unwrap();
         let plugin = runtime.load(&artifact()).await.unwrap();
-        let local = LocalUpstream::new(&[region.infer, region.openapi, region.center]);
+        let local = LocalUpstream::new(&plugin, &[region.infer, region.openapi, region.center]);
         let mut provider = snapshot(region);
         run(
             &runtime,
@@ -2431,35 +2611,41 @@ async fn native_identity_lifecycle_boundary_contract() {
             .unwrap(),
         );
 
-        // (affinity metadata, 期望 session_id；None 表示每次新建的随机 v4)
-        let cases: [(Option<Value>, Option<&str>); 9] = [
+        // (metadata, expected session and prompt IDs; None means a fresh random v4)
+        let cases: [(Option<Value>, Option<&str>, Option<&str>); 9] = [
             (
                 Some(json!("user-run-a")),
                 Some("df352d67-b004-4662-8b31-494dc95f5c74"),
+                Some("2404ee96-41bb-41d6-807b-cd3fbae78dfb"),
             ),
             (
                 Some(json!("user-run-b")),
                 Some("8da1458d-0507-4290-84e5-b170af8a88ca"),
+                Some("2404ee96-41bb-41d6-807b-cd3fbae78dfb"),
             ),
             (
                 Some(json!("user-run-a")),
                 Some("df352d67-b004-4662-8b31-494dc95f5c74"),
+                Some("b914bb80-a5e3-41a9-bcd4-5282d060b7e4"),
             ),
             (
                 Some(json!("你好\r\n\u{0}x")),
                 Some("459ab3ba-9c26-41e5-a5e9-8e60c217ff44"),
+                Some("d90796a0-9199-400b-be7a-609c4c8b4efb"),
             ),
             (
                 Some(json!("\u{0}")),
                 Some("234bc72d-d33f-46ef-93b9-3c29f5abe840"),
+                Some("ea7dea10-9b12-44f0-a6db-07cae4a131e7"),
             ),
-            (Some(json!("")), None),
-            (Some(json!(7)), None),
-            (Some(json!(["user-run-a"])), None),
-            (None, None),
+            (Some(json!("")), None, None),
+            (Some(json!(7)), None, None),
+            (Some(json!(["user-run-a"])), None, None),
+            (None, None, None),
         ];
         let mut fresh_sessions = std::collections::BTreeSet::new();
-        for (index, (affinity, expected)) in cases.iter().enumerate() {
+        let mut fresh_prompts = std::collections::BTreeSet::new();
+        for (index, (affinity, expected, expected_prompt)) in cases.iter().enumerate() {
             if index == 2 {
                 // 令牌轮换不能改变同一宿主作用域的会话身份，也不能重用请求级 ID。
                 let rotated = format!("synthetic-identity-rotated-{reload}");
@@ -2483,10 +2669,18 @@ async fn native_identity_lifecycle_boundary_contract() {
                 );
             }
             let mut call = provider.clone();
-            call.operation_metadata.remove("session_affinity");
+            call.operation_metadata.remove("client_conversation_id");
             if let Some(value) = affinity {
                 call.operation_metadata
-                    .insert("session_affinity".into(), value.clone());
+                    .insert("client_conversation_id".into(), value.clone());
+                call.operation_metadata.insert(
+                    "user_prompt_id".into(),
+                    match index {
+                        1 => json!("user-run-a"),
+                        2 => json!("user-run-b"),
+                        _ => value.clone(),
+                    },
+                );
             }
             // 客户端可控字段：canonical 会话参数与入口 metadata 都不能进入上游身份。
             let mut input = request();
@@ -2544,17 +2738,22 @@ async fn native_identity_lifecycle_boundary_contract() {
                     "case {index}: client-controlled {forged} reached the upstream body"
                 );
             }
-            // 请求级身份：同次请求共用，且每次推理都更新；不由会话键推导。
+            // An infer attempt has a fresh request ID; a valid prompt ID is stable.
             assert_eq!(body["request_id"], body["chat_record_id"]);
             assert_eq!(body["request_set_id"], body["business"]["id"]);
             assert_ne!(body["request_id"], body["request_set_id"]);
             for key in ["request_id", "request_set_id"] {
                 let id = body[key].as_str().unwrap();
                 assert_eq!(uuid::Uuid::parse_str(id).unwrap().get_version_num(), 4);
-                assert!(
-                    seen_requests.insert(id.to_owned()),
-                    "case {index} reload {reload}: {key} must be new for every inference"
-                );
+            }
+            assert!(seen_requests.insert(body["request_id"].as_str().unwrap().to_owned()));
+            let prompt = body["request_set_id"].as_str().unwrap();
+            match expected_prompt {
+                Some(expected) => assert_eq!(prompt, *expected, "case {index} reload {reload}"),
+                None => assert!(
+                    fresh_prompts.insert(prompt.to_owned()),
+                    "case {index}: unusable prompt must create a fresh ID"
+                ),
             }
             assert_ne!(body["request_id"], body["session_id"]);
             assert_ne!(body["request_set_id"], body["session_id"]);

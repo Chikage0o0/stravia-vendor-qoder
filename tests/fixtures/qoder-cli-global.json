@@ -1,0 +1,264 @@
+{
+  "provenance": {
+    "product_version": "1.1.75",
+    "site": "global",
+    "executable_sha256": "f64099d3d9516c4e324df775545c035877551bfd5b4d69650f90422acbcc9289",
+    "runtime": "official-native",
+    "runtime_versions": {
+      "bun": "1.4.2",
+      "node": "26.3.0"
+    },
+    "client": "Official Qoder CLI standalone",
+    "mode": "default interactive",
+    "connection_id": 45,
+    "selection": "Synthetic prompt marker plus trace-correlated main_agent_loop; not body length",
+    "capture_script": "stravia-vendor-qoder/scripts/capture_official_cli.py",
+    "limitations": "Synthetic account and loopback-only service, not real upstream success. SNI values and private HTTP values omitted; TLS extension payload bytes not retained."
+  },
+  "clienthello": {
+    "legacy_version": 771,
+    "cipher_suites": [
+      4865,
+      4866,
+      4867,
+      49195,
+      49199,
+      49196,
+      49200,
+      52393,
+      52392,
+      49161,
+      49171,
+      49162,
+      49172,
+      156,
+      157,
+      47,
+      53
+    ],
+    "extensions": [
+      0,
+      23,
+      65281,
+      10,
+      11,
+      35,
+      16,
+      5,
+      13,
+      18,
+      51,
+      45,
+      43
+    ],
+    "extension_details": [
+      {
+        "type": 0,
+        "length": 18
+      },
+      {
+        "type": 23,
+        "length": 0
+      },
+      {
+        "type": 65281,
+        "length": 1
+      },
+      {
+        "type": 10,
+        "length": 10
+      },
+      {
+        "type": 11,
+        "length": 2
+      },
+      {
+        "type": 35,
+        "length": 0
+      },
+      {
+        "type": 16,
+        "length": 11
+      },
+      {
+        "type": 5,
+        "length": 5
+      },
+      {
+        "type": 13,
+        "length": 20
+      },
+      {
+        "type": 18,
+        "length": 0
+      },
+      {
+        "type": 51,
+        "length": 1258
+      },
+      {
+        "type": 45,
+        "length": 2
+      },
+      {
+        "type": 43,
+        "length": 5
+      }
+    ],
+    "supported_versions": [
+      772,
+      771
+    ],
+    "alpn": [
+      "http/1.1"
+    ],
+    "supported_groups": [
+      4588,
+      29,
+      23,
+      24
+    ],
+    "signature_algorithms": [
+      1027,
+      2052,
+      1025,
+      1283,
+      2053,
+      1281,
+      2054,
+      1537,
+      513
+    ],
+    "signature_algorithms_cert": [],
+    "key_shares": [
+      {
+        "group": 4588,
+        "length": 1216
+      },
+      {
+        "group": 29,
+        "length": 32
+      }
+    ],
+    "certificate_compression": [],
+    "psk_modes": [
+      1
+    ],
+    "ec_point_formats": [
+      0
+    ],
+    "key_share_groups": [
+      4588,
+      29
+    ],
+    "ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43,4588-29-23-24,0",
+    "ja4": "t13d1713h1_5b57614c22b0_6a3d802a7139"
+  },
+  "h1": {
+    "method": "POST",
+    "path": "/algo/api/v2/service/pro/sse/agent_chat_generation",
+    "version": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Accept",
+        "value": "text/event-stream"
+      },
+      {
+        "name": "Authorization",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cache-Control",
+        "value": "no-cache"
+      },
+      {
+        "name": "Connection",
+        "value": "keep-alive"
+      },
+      {
+        "name": "Content-Type",
+        "value": "application/json"
+      },
+      {
+        "name": "Cosy-Business-Product",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-Business-Type",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-ClientType",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-Data-Policy",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-Date",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-Key",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-MachineHostname",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-MachineId",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-MachineOS",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-Scene",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-User",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Cosy-Version",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Login-Version",
+        "value": "<redacted>"
+      },
+      {
+        "name": "X-Model-Key",
+        "value": "auto"
+      },
+      {
+        "name": "X-Model-Source",
+        "value": "<redacted>"
+      },
+      {
+        "name": "traceparent",
+        "value": "<redacted>"
+      },
+      {
+        "name": "User-Agent",
+        "value": "Bun/1.4.2"
+      },
+      {
+        "name": "Host",
+        "value": "<redacted>"
+      },
+      {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+      },
+      {
+        "name": "Content-Length",
+        "value": "<redacted>"
+      }
+    ]
+  }
+}

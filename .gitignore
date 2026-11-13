@@ -1,4 +1,53 @@
+# Rust
 /target/
+**/*.rs.bk
+/.task/
+
+# Build output
 /dist/
+
+# Local runtime state
 *.info
+*.patch
+
+# Environment files (keep safe-to-commit examples)
 .env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs
+*.log
+/logs/
+
+# Python test and tooling caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Editors and local AI tooling
+.idea/
+.vscode/
+*.sw?
+/.orca/
+.antigravitycli/
+.claude/
+/.scratch/
+.cursor/
+/opencode.json
+
+# Operating systems
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# devenv / direnv
+/.devenv/
+/.devenv.flake.nix
+/devenv.local.nix
+/devenv.local.yaml
+/.direnv/

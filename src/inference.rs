@@ -5,11 +5,11 @@ use sha2::{Digest, Sha256};
 use std::{borrow::Cow, time::Duration};
 use stravia_protocol_codec::accumulator::StreamResponseAccumulator;
 use stravia_protocol_codec::transform::{ProtocolTransform, StreamDecodeStage};
+use stravia_runtime_contract::protocol::ir::response::RESPONSE_HISTORY_GROUP_META;
 use stravia_runtime_contract::protocol::ir::{
     AiRequest, CacheTtl, ContentBlock, MediaSource, MessageContent, Role, ToolChoice,
     ToolResultContentKind,
 };
-use stravia_runtime_contract::protocol::ir::response::RESPONSE_HISTORY_GROUP_META;
 use stravia_vendor_common::common;
 use stravia_vendor_sdk::{
     AiErrorKind, AiStreamDelta, ErrorKind, GuestHost, OperationOutput, PluginError,
@@ -38,13 +38,17 @@ pub(crate) fn execute(
             "invalid Qoder model options",
         ));
     }
-    let session = provider
-        .operation_metadata
-        .get("session_affinity")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(native_session_id)
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let identity_id = |key, domain| {
+        provider
+            .operation_metadata
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(|id| native_id(domain, id))
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+    };
+    let session = identity_id("client_conversation_id", b"qoder-session-v1\0".as_slice());
+    let request_set_id = identity_id("user_prompt_id", b"qoder-prompt-v1\0".as_slice());
     let model_config = provider
         .model_metadata
         .as_ref()
@@ -66,7 +70,8 @@ pub(crate) fn execute(
         .and_then(|config| config.get("is_vl"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let canonical = project_request(&request, supports_vision)?;
+    let mut canonical = project_request(&request, supports_vision)?;
+    canonical["qoder_request_set_id"] = json!(request_set_id);
     let body = build_body(canonical, model, source, &session, region, model_config)?;
     let raw = serde_json::to_vec(&body)
         .map_err(|_| common::plugin_error(ErrorKind::Invalid, "cannot serialize Qoder request"))?;
@@ -116,10 +121,10 @@ pub(crate) fn execute(
     Ok(OperationOutput::Infer(Box::new(complete)))
 }
 
-fn native_session_id(affinity: &str) -> String {
+fn native_id(domain: &[u8], source: &str) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"qoder-session-v1\0");
-    digest.update(affinity.as_bytes());
+    digest.update(domain);
+    digest.update(source.as_bytes());
     let mut bytes = [0; 16];
     bytes.copy_from_slice(&digest.finalize()[..16]);
     // 保留宿主链根的稳定性，仅转换为 CLI 使用的 UUID 布局；这不是随机熵。
@@ -736,6 +741,13 @@ fn build_body(
             "invalid canonical Qoder request",
         ));
     };
+    let request_set_id = parameters
+        .remove("qoder_request_set_id")
+        .and_then(|value| match value {
+            Value::String(id) => Some(id),
+            _ => None,
+        })
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let requested_effort = parameters
         .remove("qoder_reasoning_effort")
         .and_then(|value| value.as_str().map(str::to_owned));
@@ -951,11 +963,9 @@ fn build_body(
         .and_then(|m| m.get("content"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    // 官方主路径：request_id 与 chat_record_id 同值，每个模型请求新建；
-    // request_set_id 在一个用户提示内复用，business.id 取同一值（Sin 的 id: r||djA()）。
-    // 宿主没有提供请求组或业务级可信源 ID，因此以本次推理为最小生命周期新建。
+    // request_id 与 chat_record_id 每个模型请求新建；请求组由可信宿主提示 ID 派生。
+    // 独立调用构造器而没有该内部字段时，按 CLI 语义新建请求组。
     let id = uuid::Uuid::new_v4().to_string();
-    let request_set_id = uuid::Uuid::new_v4().to_string();
     let mut name_end = 0;
     let mut name_units = 0;
     for (offset, character) in prompt.char_indices() {
@@ -975,7 +985,7 @@ fn build_body(
         "model_config": config,
         "business": {
             "product": "cli", "version": protocol::CLI_VERSION, "type": "agent",
-            "id": &request_set_id, "name": &prompt[..name_end],
+            "id": &request_set_id, "name": &prompt[..name_end], "model_key": model,
             "begin_at": chrono::Utc::now().timestamp_millis(), "stage": "start"
         },
         "system": system, "messages": messages, "tools": tools,
@@ -1308,7 +1318,7 @@ fn seconds_to_ms(value: &Value) -> Option<u64> {
 fn classified_error(status: u16, value: &Value, text: &str) -> PluginError {
     let mut facts = ErrorFacts::default();
     facts.inspect(value, 0);
-    let mut kind = common::upstream_error(status, &[], &[])
+    let mut kind = common::upstream_error(status, &stravia_vendor_sdk::net::Fields::new(), &[])
         .kind
         .model_error_kind()
         .unwrap_or(AiErrorKind::ServerError);
@@ -1813,12 +1823,25 @@ mod tests {
             ("你好\r\n\u{0}x", "459ab3ba-9c26-41e5-a5e9-8e60c217ff44"),
             ("\u{0}", "234bc72d-d33f-46ef-93b9-3c29f5abe840"),
         ] {
-            assert_eq!(native_session_id(source), expected, "{source:?}");
-            assert_eq!(native_session_id(source), native_session_id(source));
+            assert_eq!(
+                native_id(b"qoder-session-v1\0", source),
+                expected,
+                "{source:?}"
+            );
+            assert_eq!(
+                native_id(b"qoder-session-v1\0", source),
+                native_id(b"qoder-session-v1\0", source)
+            );
         }
         // 不 trim、不改大小写：任何字节差异都是另一条会话。
-        assert_ne!(native_session_id("a"), native_session_id("a "));
-        assert_ne!(native_session_id("a"), native_session_id("A"));
+        assert_ne!(
+            native_id(b"qoder-session-v1\0", "a"),
+            native_id(b"qoder-session-v1\0", "a ")
+        );
+        assert_ne!(
+            native_id(b"qoder-session-v1\0", "a"),
+            native_id(b"qoder-session-v1\0", "A")
+        );
     }
 
     #[test]
@@ -1828,7 +1851,7 @@ mod tests {
                 json!({"messages":[{"role":"user","content":"hello"}]}),
                 "remote",
                 "system",
-                &native_session_id("host-session"),
+                &native_id(b"qoder-session-v1\0", "host-session"),
                 Region::Global,
                 None,
             )
@@ -1840,7 +1863,10 @@ mod tests {
             assert_eq!(body["request_id"], body["chat_record_id"]);
             assert_eq!(body["request_set_id"], body["business"]["id"]);
             assert_ne!(body["request_id"], body["request_set_id"]);
-            assert_eq!(body["session_id"], native_session_id("host-session"));
+            assert_eq!(
+                body["session_id"],
+                native_id(b"qoder-session-v1\0", "host-session")
+            );
             for key in ["request_id", "request_set_id"] {
                 let id = uuid::Uuid::parse_str(body[key].as_str().unwrap()).unwrap();
                 assert_eq!(id.get_version_num(), 4);

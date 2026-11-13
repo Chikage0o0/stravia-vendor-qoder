@@ -1,0 +1,24 @@
+{
+  "fields": ["code", "type", "status", "error"],
+  "codes": {
+    "105": "login_expired",
+    "103": "duplicate_request",
+    "110": "quota_or_billing",
+    "113": "quota_or_billing",
+    "114": "quota_or_billing",
+    "115": "quota_or_billing",
+    "116": "quota_or_billing",
+    "117": "quota_or_billing",
+    "118": "quota_or_billing",
+    "119": "quota_or_billing",
+    "122": "quota_or_billing",
+    "406": "content_policy",
+    "430": "unsupported",
+    "100400": "custom_model_service",
+    "100401": "custom_model_auth",
+    "100403": "custom_model_unavailable",
+    "10605": "queued",
+    "80411": "input_limits",
+    "80412": "input_limits"
+  }
+}
